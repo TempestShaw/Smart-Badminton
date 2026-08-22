@@ -1,14 +1,14 @@
 "use client";
 
 import type { PointerEvent as ReactPointerEvent } from "react";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { memo, useCallback, useEffect, useRef, useState } from "react";
 import { Maximize2, Plus } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import { Slider } from "@/components/ui/slider";
 import type { StudioController } from "@/hooks/use-studio-controller";
 import { clampBoundary, cloneSegments, formatTime, outputDuration } from "@/lib/time";
-import type { Segment } from "@/types/studio";
+import type { EvidencePayload, Segment } from "@/types/studio";
 
 const GUTTER = 92;
 const evidenceLabels: Record<string, string> = {
@@ -39,18 +39,76 @@ interface ScrubSeek {
   timer: number | null;
 }
 
+function timelinePercent(time: number, duration: number): string {
+  if (duration <= 0) return "0%";
+  return `${Math.max(0, Math.min(100, time / duration * 100))}%`;
+}
+
+const RulerTicks = memo(function RulerTicks({ duration, major }: { duration: number; major: number }) {
+  const minor = major / 5;
+  const ticks = [];
+  for (let value = 0; value <= duration + 0.001; value += minor) {
+    const isMajor = Math.abs(value / major - Math.round(value / major)) < 0.001;
+    ticks.push(
+      <span key={value} className={isMajor ? "ruler-tick" : "ruler-tick minor"} style={{ left: timelinePercent(value, duration) }}>
+        {isMajor ? formatTime(value, false) : "·"}
+      </span>,
+    );
+  }
+  return ticks;
+});
+
+const EvidenceItems = memo(function EvidenceItems({ evidence, duration }: { evidence: EvidencePayload | undefined; duration: number }) {
+  if (!evidence?.available) return <span className="evidence-empty">{evidence?.reason || "运行自动分析后显示逐帧证据"}</span>;
+  return (
+    <>
+      {Object.entries(evidence.signals ?? {}).flatMap(([name, spans]) => name === "landing_candidate" ? [] : spans.map(([start, end], index) => (
+        <span
+          key={`${name}-${index}`}
+          className={`evidence-span ${name.replaceAll("_", "-")}`}
+          style={{ left: timelinePercent(start, duration), width: timelinePercent(end - start, duration) }}
+          title={`${evidenceLabels[name] || name} ${formatTime(start)}–${formatTime(end)}`}
+        />
+      )))}
+      {(evidence.serves ?? []).map((event, index) => <span key={`serve-${index}`} className={`evidence-marker serve-${event.server}`} style={{ left: timelinePercent(event.time, duration) }} title={`${event.server === "near" ? "近场" : "远场"}正式发球 ${formatTime(event.time)}`} />)}
+      {(evidence.contacts ?? []).map((event, index) => <span key={`contact-${index}`} className="evidence-marker contact" style={{ left: timelinePercent(event.time, duration) }} title={`严格球拍接触 ${formatTime(event.time)} · ${Math.round(event.confidence * 100)}%`} />)}
+      {(evidence.terminal_events ?? []).map((event, index) => <span key={`terminal-${index}`} className="evidence-marker terminal" style={{ left: timelinePercent(event.time, duration) }} title={`终局 ${event.event} ${formatTime(event.time)} · ${Math.round(event.confidence * 100)}%`} />)}
+    </>
+  );
+});
+
 export function TimelineEditor({ studio }: { studio: StudioController }) {
   const scrollRef = useRef<HTMLDivElement>(null);
   const playheadRef = useRef<HTMLDivElement>(null);
   const dragRef = useRef<BoundaryDrag | null>(null);
   const segmentsRef = useRef(studio.segments);
   const scrubSeekRef = useRef<ScrubSeek>({ lastSeekAt: 0, pendingTime: 0, timer: null });
+  const zoomFrameRef = useRef<number | null>(null);
+  const pendingZoomRef = useRef(8);
   const [pixelsPerSecond, setPixelsPerSecond] = useState(8);
   const [containerWidth, setContainerWidth] = useState(900);
   const { finishPreviewChange, previewSegments, project, videoRef } = studio;
   segmentsRef.current = studio.segments;
   const duration = studio.project?.video.duration ?? 0;
   const timelineWidth = Math.max(400, containerWidth - GUTTER, duration * pixelsPerSecond);
+  const timelineScale = duration > 0 ? timelineWidth / duration : pixelsPerSecond;
+  const rulerMajor = pixelsPerSecond >= 14 ? 5 : pixelsPerSecond >= 6 ? 10 : 30;
+
+  const scheduleZoom = useCallback((value: number) => {
+    pendingZoomRef.current = value;
+    if (zoomFrameRef.current !== null) return;
+    zoomFrameRef.current = window.requestAnimationFrame(() => {
+      zoomFrameRef.current = null;
+      setPixelsPerSecond(pendingZoomRef.current);
+    });
+  }, []);
+
+  const commitZoom = useCallback((value: number) => {
+    pendingZoomRef.current = value;
+    if (zoomFrameRef.current !== null) window.cancelAnimationFrame(zoomFrameRef.current);
+    zoomFrameRef.current = null;
+    setPixelsPerSecond(value);
+  }, []);
 
   useEffect(() => {
     const element = scrollRef.current;
@@ -65,7 +123,7 @@ export function TimelineEditor({ studio }: { studio: StudioController }) {
     let frame = 0;
     const update = () => {
       if (playheadRef.current && video) {
-        playheadRef.current.style.transform = `translateX(${(video.currentTime || 0) * pixelsPerSecond}px)`;
+        playheadRef.current.style.transform = `translateX(${(video.currentTime || 0) * timelineScale}px)`;
       }
       if (video && !video.paused) frame = window.requestAnimationFrame(update);
     };
@@ -81,18 +139,7 @@ export function TimelineEditor({ studio }: { studio: StudioController }) {
       video?.removeEventListener("play", start);
       video?.removeEventListener("seeked", update);
     };
-  }, [pixelsPerSecond, studio.mediaSource, videoRef]);
-
-  const rulerTicks = useMemo(() => {
-    const major = pixelsPerSecond >= 14 ? 5 : pixelsPerSecond >= 6 ? 10 : 30;
-    const minor = major / 5;
-    const result = [];
-    for (let value = 0; value <= duration + 0.001; value += minor) {
-      const isMajor = Math.abs(value / major - Math.round(value / major)) < 0.001;
-      result.push({ value, isMajor });
-    }
-    return result;
-  }, [duration, pixelsPerSecond]);
+  }, [studio.mediaSource, timelineScale, videoRef]);
 
   const seekPreview = useCallback((time: number, immediate = false) => {
     const video = videoRef.current;
@@ -134,6 +181,7 @@ export function TimelineEditor({ studio }: { studio: StudioController }) {
 
   useEffect(() => () => {
     if (scrubSeekRef.current.timer !== null) window.clearTimeout(scrubSeekRef.current.timer);
+    if (zoomFrameRef.current !== null) window.cancelAnimationFrame(zoomFrameRef.current);
   }, []);
 
   const beginBoundaryDrag = (event: ReactPointerEvent, index: number, edge: "start" | "end") => {
@@ -150,7 +198,7 @@ export function TimelineEditor({ studio }: { studio: StudioController }) {
       const drag = dragRef.current;
       if (!drag || !project) return;
       const originalSegment = drag.original[drag.index];
-      const delta = (event.clientX - drag.startX) / pixelsPerSecond;
+      const delta = (event.clientX - drag.startX) / timelineScale;
       const value = originalSegment[drag.edge] + delta;
       const next = clampBoundary(
         drag.original,
@@ -180,11 +228,11 @@ export function TimelineEditor({ studio }: { studio: StudioController }) {
       window.removeEventListener("pointerup", finish);
       window.removeEventListener("pointercancel", finish);
     };
-  }, [finishPreviewChange, pixelsPerSecond, previewSegments, project, seekPreview]);
+  }, [finishPreviewChange, previewSegments, project, seekPreview, timelineScale]);
 
   const timelineTime = (event: ReactPointerEvent<HTMLElement>) => {
     const bounds = event.currentTarget.getBoundingClientRect();
-    return Math.max(0, Math.min(duration, (event.clientX - bounds.left) / pixelsPerSecond));
+    return Math.max(0, Math.min(duration, (event.clientX - bounds.left) / Math.max(1, bounds.width) * duration));
   };
 
   const scrub = (event: ReactPointerEvent<HTMLElement>) => {
@@ -194,7 +242,7 @@ export function TimelineEditor({ studio }: { studio: StudioController }) {
     const target = event.currentTarget;
     const move = (native: PointerEvent) => {
       const bounds = target.getBoundingClientRect();
-      const time = Math.max(0, Math.min(duration, (native.clientX - bounds.left) / pixelsPerSecond));
+      const time = Math.max(0, Math.min(duration, (native.clientX - bounds.left) / Math.max(1, bounds.width) * duration));
       seekScrub(time);
     };
     const finish = () => {
@@ -219,14 +267,14 @@ export function TimelineEditor({ studio }: { studio: StudioController }) {
         </div>
         <div className="timeline-tools">
           <Button size="sm" variant="outline" onClick={studio.addSegment}><Plus />新增片段</Button>
-          <Button size="sm" variant="outline" onClick={() => setPixelsPerSecond(Math.max(1.5, (containerWidth - GUTTER) / Math.max(1, duration)))}><Maximize2 />适应窗口</Button>
-          <label className="zoom-control">缩放<Slider aria-label="时间轴缩放" min={1.5} max={120} step={0.5} value={[pixelsPerSecond]} onValueChange={([value]) => setPixelsPerSecond(value)} /></label>
+          <Button size="sm" variant="outline" onClick={() => commitZoom(Math.max(1.5, (containerWidth - GUTTER) / Math.max(1, duration)))}><Maximize2 />适应窗口</Button>
+          <label className="zoom-control">缩放<Slider aria-label="时间轴缩放" min={1.5} max={120} step={0.5} value={[pixelsPerSecond]} onValueChange={([value]) => scheduleZoom(value)} onValueCommit={([value]) => commitZoom(value)} /></label>
         </div>
       </div>
       <div className="timeline-scroll" ref={scrollRef}>
         <div className="timeline-canvas" style={{ width: timelineWidth + GUTTER }}>
           <div className="ruler" style={{ width: timelineWidth }} onPointerDown={scrub}>
-            {rulerTicks.map((tick) => <span key={tick.value} className={tick.isMajor ? "ruler-tick" : "ruler-tick minor"} style={{ left: tick.value * pixelsPerSecond }}>{tick.isMajor ? formatTime(tick.value, false) : "·"}</span>)}
+            <RulerTicks duration={duration} major={rulerMajor} />
           </div>
           <div className="track-label">保留片段</div>
           <div className="segment-track" style={{ width: timelineWidth }} onPointerDown={scrub}>
@@ -234,7 +282,7 @@ export function TimelineEditor({ studio }: { studio: StudioController }) {
               <div
                 key={segment.id ?? `${segment.start}-${index}`}
                 className={`timeline-segment${segment.review_required === "yes" ? " review" : ""}${index === studio.selectedIndex ? " selected" : ""}`}
-                style={{ left: segment.start * pixelsPerSecond, width: Math.max(3, (segment.end - segment.start) * pixelsPerSecond) }}
+                style={{ left: timelinePercent(segment.start, duration), width: `max(3px, ${timelinePercent(segment.end - segment.start, duration)})` }}
                 onClick={(event) => {
                   event.stopPropagation();
                   studio.selectSegment(index, true);
@@ -248,13 +296,7 @@ export function TimelineEditor({ studio }: { studio: StudioController }) {
           </div>
           <div className="evidence-label"><span>模型</span><span>球路</span><span>站位</span><span>事件</span></div>
           <div className="evidence-track" style={{ width: timelineWidth }} onPointerDown={scrub}>
-            {!evidence?.available ? <span className="evidence-empty">{evidence?.reason || "运行自动分析后显示逐帧证据"}</span> : null}
-            {Object.entries(evidence?.signals ?? {}).flatMap(([name, spans]) => name === "landing_candidate" ? [] : spans.map(([start, end], index) => (
-              <span key={`${name}-${index}`} className={`evidence-span ${name.replaceAll("_", "-")}`} style={{ left: start * pixelsPerSecond, width: Math.max(1, (end - start) * pixelsPerSecond) }} title={`${evidenceLabels[name] || name} ${formatTime(start)}–${formatTime(end)}`} />
-            )))}
-            {(evidence?.serves ?? []).map((event, index) => <span key={`serve-${index}`} className={`evidence-marker serve-${event.server}`} style={{ left: event.time * pixelsPerSecond }} title={`${event.server === "near" ? "近场" : "远场"}正式发球 ${formatTime(event.time)}`} />)}
-            {(evidence?.contacts ?? []).map((event, index) => <span key={`contact-${index}`} className="evidence-marker contact" style={{ left: event.time * pixelsPerSecond }} title={`严格球拍接触 ${formatTime(event.time)} · ${Math.round(event.confidence * 100)}%`} />)}
-            {(evidence?.terminal_events ?? []).map((event, index) => <span key={`terminal-${index}`} className="evidence-marker terminal" style={{ left: event.time * pixelsPerSecond }} title={`终局 ${event.event} ${formatTime(event.time)} · ${Math.round(event.confidence * 100)}%`} />)}
+            <EvidenceItems evidence={evidence} duration={duration} />
           </div>
           <div className="playhead" ref={playheadRef}><span /></div>
         </div>
