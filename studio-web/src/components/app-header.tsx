@@ -13,9 +13,12 @@ import type { StudioController } from "@/hooks/use-studio-controller";
 
 export function AppHeader({ studio }: { studio: StudioController }) {
   const [includeTrajectory, setIncludeTrajectory] = useState(false);
+  const [winnerFilter, setWinnerFilter] = useState<"all" | "near" | "far">("all");
+  const [includeScore, setIncludeScore] = useState(false);
   const outputExists = studio.project?.output.file_exists;
   const ffmpegReady = studio.project?.runtime.ffmpeg.available === true;
   const trajectoryReady = studio.project?.shuttle_analysis.generated === true;
+  const scoreReady = studio.score.available && !studio.dirty;
   return (
     <header className="topbar">
       <div className="brand" aria-label="Smart Badminton Studio">
@@ -54,17 +57,48 @@ export function AppHeader({ studio }: { studio: StudioController }) {
                 <br />目标：{studio.project?.output.path}
               </AlertDialogDescription>
             </AlertDialogHeader>
-            <label className="flex items-center gap-3 rounded-md border p-3 text-sm">
-              <Checkbox
-                checked={trajectoryReady && includeTrajectory}
-                disabled={!trajectoryReady}
-                onCheckedChange={(checked) => setIncludeTrajectory(checked === true)}
-              />
-              <span>{trajectoryReady ? "包含羽球轨迹" : "需先分析球路"}</span>
-            </label>
+            <div className="grid gap-2">
+              <label className="grid gap-2 rounded-md border p-3 text-sm">
+                <span>内容范围</span>
+                <select
+                  aria-label="内容范围"
+                  className="h-8 w-full rounded-lg border border-input bg-background px-2 text-sm"
+                  value={scoreReady ? winnerFilter : "all"}
+                  onChange={(event) => setWinnerFilter(event.target.value as "all" | "near" | "far")}
+                >
+                  <option value="all">全部回合</option>
+                  <option value="near" disabled={!scoreReady}>近场得分</option>
+                  <option value="far" disabled={!scoreReady}>远场得分</option>
+                </select>
+              </label>
+              <label className="flex items-center gap-3 rounded-md border p-3 text-sm">
+                <Checkbox
+                  checked={trajectoryReady && includeTrajectory}
+                  disabled={!trajectoryReady}
+                  onCheckedChange={(checked) => setIncludeTrajectory(checked === true)}
+                />
+                <span>{trajectoryReady ? "包含羽球轨迹" : "需先分析球路"}</span>
+              </label>
+              <label className="flex items-center gap-3 rounded-md border p-3 text-sm">
+                <Checkbox
+                  checked={scoreReady && includeScore}
+                  disabled={!scoreReady}
+                  onCheckedChange={(checked) => setIncludeScore(checked === true)}
+                />
+                <span>{scoreReady ? "显示比分" : "需先计算比分"}</span>
+              </label>
+            </div>
             <AlertDialogFooter>
               <AlertDialogCancel>取消</AlertDialogCancel>
-              <AlertDialogAction onClick={() => void studio.startRender(trajectoryReady && includeTrajectory)}>{outputExists ? "确认覆盖并输出" : "开始输出"}</AlertDialogAction>
+              <AlertDialogAction
+                onClick={() => void studio.startRender(
+                  trajectoryReady && includeTrajectory,
+                  scoreReady ? winnerFilter : "all",
+                  scoreReady && includeScore,
+                )}
+              >
+                {outputExists ? "确认覆盖并输出" : "开始输出"}
+              </AlertDialogAction>
             </AlertDialogFooter>
           </AlertDialogContent>
         </AlertDialog>

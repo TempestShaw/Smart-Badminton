@@ -299,6 +299,59 @@ def test_studio_rejects_trajectory_render_before_analysis(tmp_path: Path, monkey
     assert response.json()["detail"] == "请先分析当前视频球路"
 
 
+def test_studio_render_can_filter_winner_and_show_score(tmp_path: Path, monkeypatch) -> None:
+    video = tmp_path / "source.mp4"
+    video.write_bytes(b"placeholder")
+    timeline = tmp_path / "rallies.csv"
+    timeline.write_text("rally,start_seconds,end_seconds\n1,1,2\n", encoding="utf-8")
+    analysis = tmp_path / "Analysis" / "Auto" / video.stem
+    analysis.mkdir(parents=True)
+    score_path = analysis / "score-state.csv"
+    score_path.write_text(
+        "rally,winner,near_score,far_score,game_finished\n1,near,1,0,\n",
+        encoding="utf-8",
+    )
+    (analysis / "score-summary.json").write_text(
+        json.dumps({"available": True, "rallies": []}),
+        encoding="utf-8",
+    )
+    captured: dict[str, object] = {}
+    monkeypatch.setattr(
+        studio,
+        "_runtime_payload",
+        lambda _state: {"ffmpeg": {"available": True, "selected_encoder": "libx264", "reason": None}},
+    )
+
+    def fake_render(*args, **kwargs):
+        captured.update(kwargs)
+        return "libx264"
+
+    monkeypatch.setattr(studio, "render_rallies", fake_render)
+    client = TestClient(
+        studio.create_studio_app(
+            StudioState(video=video, rallies=timeline, output=tmp_path / "edited.mp4", library=tmp_path)
+        )
+    )
+
+    response = client.post(
+        "/api/render",
+        json={"winner_filter": "near", "include_score": True},
+    )
+    assert response.status_code == 200
+    for _ in range(100):
+        if client.get("/api/render").json()["state"] != "running":
+            break
+        time.sleep(0.01)
+
+    status = client.get("/api/render").json()
+    assert status["state"] == "complete"
+    assert status["winner_filter"] == "near"
+    assert status["include_score"] is True
+    assert captured["score_csv"] == score_path
+    assert captured["winner_filter"] == "near"
+    assert captured["include_score"] is True
+
+
 def test_studio_score_correction_does_not_mutate_timeline(tmp_path: Path, monkeypatch) -> None:
     video = tmp_path / "source.mp4"
     video.write_bytes(b"placeholder")

@@ -492,12 +492,20 @@ export function useStudioController() {
     };
   }, [analysisStatus.state, notify, refreshLibrary, refreshProjectMetadata, reloadProject]);
 
-  const startRender = useCallback(async (includeTrajectory = false) => {
+  const startRender = useCallback(async (
+    includeTrajectory = false,
+    winnerFilter: "all" | "near" | "far" = "all",
+    includeScore = false,
+  ) => {
     if (dirty && !(await saveTimeline())) return;
     try {
       const payload = await apiRequest<RenderStatus>("/api/render", {
         method: "POST",
-        body: JSON.stringify({ include_trajectory: includeTrajectory }),
+        body: JSON.stringify({
+          include_trajectory: includeTrajectory,
+          winner_filter: winnerFilter,
+          include_score: includeScore,
+        }),
       });
       setRenderStatus(payload);
       notify("开始输出成片");

@@ -224,6 +224,8 @@ export interface RenderStatus {
   output?: string;
   message?: string;
   include_trajectory?: boolean;
+  winner_filter?: "all" | "near" | "far";
+  include_score?: boolean;
 }
 
 export interface AnalysisStatus {

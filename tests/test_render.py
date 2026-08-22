@@ -2,6 +2,7 @@ import subprocess
 from pathlib import Path
 
 from smart_badminton.render import render_rallies
+from smart_badminton.score_overlay import create_score_ass
 from smart_badminton.trajectory_overlay import create_trajectory_ass
 
 
@@ -85,3 +86,67 @@ def test_render_adds_ass_filter_when_trajectory_is_requested(tmp_path: Path, mon
     assert "ass=filename=" in filter_graph
     assert "split=2[marked0][marked1]" in filter_graph
     assert not list(tmp_path.glob(".trajectory-*.ass"))
+
+
+def test_score_ass_updates_at_the_end_of_each_rally(tmp_path: Path) -> None:
+    timeline = tmp_path / "rallies.csv"
+    timeline.write_text("rally,start_seconds,end_seconds\n1,1,3\n2,4,6\n", encoding="utf-8")
+    score = tmp_path / "score.csv"
+    score.write_text(
+        "rally,winner,near_score,far_score,game_finished\n"
+        "1,near,1,0,\n"
+        "2,far,1,1,\n",
+        encoding="utf-8",
+    )
+    overlay = tmp_path / "score.ass"
+
+    event_count = create_score_ass(timeline, score, overlay)
+    content = overlay.read_text(encoding="utf-8")
+
+    assert event_count == 4
+    assert "0:00:01.00,0:00:02.35" in content
+    assert "近场  0  :  0  远场" in content
+    assert "0:00:02.35,0:00:03.00" in content
+    assert "近场  1  :  0  远场" in content
+    assert "0:00:05.35,0:00:06.00" in content
+    assert "近场  1  :  1  远场" in content
+
+
+def test_render_filters_winner_and_adds_score_overlay(tmp_path: Path, monkeypatch) -> None:
+    timeline = tmp_path / "rallies.csv"
+    timeline.write_text(
+        "rally,start_seconds,end_seconds\n1,1,2\n2,3,4\n3,5,6\n",
+        encoding="utf-8",
+    )
+    score = tmp_path / "score.csv"
+    score.write_text(
+        "rally,winner,near_score,far_score,game_finished\n"
+        "1,near,1,0,\n"
+        "2,far,1,1,\n"
+        "3,unknown,1,1,\n",
+        encoding="utf-8",
+    )
+    commands: list[list[str]] = []
+
+    monkeypatch.setattr("smart_badminton.render.resolve_ffmpeg", lambda _path=None: Path("ffmpeg"))
+    monkeypatch.setattr("smart_badminton.encoding.available_ffmpeg_encoders", lambda _path=None: {"libx264"})
+    monkeypatch.setattr(
+        "smart_badminton.encoding.subprocess.run",
+        lambda command, check: commands.append(command),
+    )
+
+    render_rallies(
+        tmp_path / "source.mp4",
+        timeline,
+        tmp_path / "near-winners.mp4",
+        encoder="libx264",
+        score_csv=score,
+        winner_filter="near",
+        include_score=True,
+    )
+
+    filter_graph = commands[0][commands[0].index("-filter_complex") + 1]
+    assert "score.ass" in filter_graph
+    assert "trim=start=1.000:end=2.000" in filter_graph
+    assert "trim=start=3.000:end=4.000" not in filter_graph
+    assert "concat=n=1" in filter_graph

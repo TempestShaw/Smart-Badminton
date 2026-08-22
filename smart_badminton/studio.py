@@ -1758,12 +1758,13 @@ def create_studio_app(state: StudioState):
         except (KeyError, TypeError, ValueError) as error:
             raise HTTPException(status_code=400, detail=str(error)) from error
 
-    def render_worker(include_trajectory: bool) -> None:
+    def render_worker(include_trajectory: bool, winner_filter: str, include_score: bool) -> None:
         try:
             with state.project_lock:
                 video_path, timeline_path, output_path = state.video, state.rallies, state.output
                 library = state.library or state.video.parent
                 trajectory_path = _analysis_directory(library, state.video) / "shuttle-track.csv"
+                score_path = _score_paths(state)[2]
             used_encoder = render_rallies(
                 video_path,
                 timeline_path,
@@ -1772,6 +1773,9 @@ def create_studio_app(state: StudioState):
                 state.encoder,
                 state.quality,
                 trajectory_csv=trajectory_path if include_trajectory else None,
+                score_csv=score_path if include_score or winner_filter != "all" else None,
+                winner_filter=winner_filter,
+                include_score=include_score,
             )
             runtime = _runtime_payload(state)["ffmpeg"]
             if runtime.get("selected_encoder") != used_encoder:
@@ -1782,6 +1786,8 @@ def create_studio_app(state: StudioState):
                 "output": str(output_path),
                 "encoder": used_encoder,
                 "include_trajectory": include_trajectory,
+                "winner_filter": winner_filter,
+                "include_score": include_score,
             }
         except Exception as error:  # noqa: BLE001 - every renderer failure must reach the local UI
             state.render_status = {"state": "error", "message": str(error)}
@@ -1790,8 +1796,14 @@ def create_studio_app(state: StudioState):
     def start_render(payload: dict[str, Any] | None = None):
         payload = payload or {}
         include_trajectory = payload.get("include_trajectory", False)
+        winner_filter = payload.get("winner_filter", "all")
+        include_score = payload.get("include_score", False)
         if not isinstance(include_trajectory, bool):
             raise HTTPException(status_code=400, detail="include_trajectory must be a boolean")
+        if winner_filter not in {"all", "near", "far"}:
+            raise HTTPException(status_code=400, detail="winner_filter must be all, near, or far")
+        if not isinstance(include_score, bool):
+            raise HTTPException(status_code=400, detail="include_score must be a boolean")
         if state.analysis_status.get("state") == "running":
             raise HTTPException(status_code=409, detail="Wait for automatic analysis to finish before rendering")
         if not _timeline_has_segments(state.rallies):
@@ -1805,6 +1817,10 @@ def create_studio_app(state: StudioState):
             trajectory_path = _analysis_directory(library, state.video) / "shuttle-track.csv"
             if not trajectory_path.exists():
                 raise HTTPException(status_code=409, detail="请先分析当前视频球路")
+        if include_score or winner_filter != "all":
+            score = _score_payload(state)
+            if not score.get("available"):
+                raise HTTPException(status_code=409, detail="请先计算比分")
         with state.render_lock:
             if state.render_status.get("state") == "running":
                 return state.render_status
@@ -1812,8 +1828,14 @@ def create_studio_app(state: StudioState):
                 "state": "running",
                 "output": str(state.output),
                 "include_trajectory": include_trajectory,
+                "winner_filter": winner_filter,
+                "include_score": include_score,
             }
-            threading.Thread(target=render_worker, args=(include_trajectory,), daemon=True).start()
+            threading.Thread(
+                target=render_worker,
+                args=(include_trajectory, winner_filter, include_score),
+                daemon=True,
+            ).start()
         return state.render_status
 
     @app.get("/api/render")
