@@ -28,6 +28,24 @@ SCORE_FIELDS = [
 NEXT_SERVE_CONFIDENCE_THRESHOLD = 0.72
 
 
+def _next_serve_calibration(
+    corrections: list[dict[str, Any]], serve_observations: list[dict[str, Any]]
+) -> dict[str, Any]:
+    serve_map = {int(row["rally"]): str(row.get("server", "unknown")) for row in serve_observations}
+    checks = []
+    for correction in corrections:
+        winner = str(correction.get("winner", "auto"))
+        observed = serve_map.get(int(correction["rally"]) + 1, "unknown")
+        if winner in {"near", "far"} and observed in {"near", "far"}:
+            checks.append(winner == observed)
+    accuracy = sum(checks) / len(checks) if checks else None
+    return {
+        "samples": len(checks),
+        "accuracy": accuracy,
+        "enabled": len(checks) < 3 or accuracy >= 0.70,
+    }
+
+
 def load_score_corrections(path: Path | None) -> list[dict[str, Any]]:
     if path is None or not path.exists():
         return []
@@ -126,6 +144,7 @@ def calculate_score_state(
     corrections: list[dict[str, Any]] | None = None,
     initial_server: str = "unknown",
     serve_observations: list[dict[str, Any]] | None = None,
+    allow_next_serve: bool = True,
 ) -> list[dict[str, Any]]:
     event_map = {int(row["rally"]): row for row in events or []}
     correction_map = {int(row["rally"]): row for row in corrections or []}
@@ -141,7 +160,7 @@ def calculate_score_state(
         winner, confidence, note = _automatic_winner(event_map.get(rally))
         source = "automatic-terminal" if winner in {"near", "far"} else "unresolved"
         next_serve = serve_map.get(rally + 1)
-        if winner == "unknown" and next_serve:
+        if winner == "unknown" and next_serve and allow_next_serve:
             next_server = str(next_serve.get("server", "unknown"))
             next_confidence = float(next_serve.get("confidence", 0.0))
             if next_server in {"near", "far"} and next_confidence >= NEXT_SERVE_CONFIDENCE_THRESHOLD:
@@ -207,12 +226,14 @@ def analyze_score(
     rallies = load_rallies(rallies_csv)
     events = read_rows(events_csv) if events_csv is not None and events_csv.exists() else []
     corrections = load_score_corrections(corrections_csv)
+    next_serve_calibration = _next_serve_calibration(corrections, serve_observations or [])
     rows = calculate_score_state(
         len(rallies),
         events,
         corrections,
         initial_server,
         serve_observations,
+        bool(next_serve_calibration["enabled"]),
     )
     write_rows(output_csv, SCORE_FIELDS, rows)
     summary = {
@@ -224,6 +245,7 @@ def analyze_score(
         "manual": sum(str(row["winner_source"]).startswith("manual") for row in rows),
         "automatic": sum(str(row["winner_source"]).startswith("automatic") for row in rows),
         "complete": all(bool(row["score_complete"]) for row in rows),
+        "next_serve_calibration": next_serve_calibration,
         "method": "terminal event or next rally's visually detected formal server",
         "disclaimer": (
             "Automatic points require independent visual evidence. Unresolved rallies are not counted, so a partial "

@@ -84,7 +84,11 @@ Before freezing a release model, the optional benchmark compares histogram gradi
 ```bash
 smart-badminton benchmark-models --dataset dataset.json --report output/model-benchmark.json
 smart-badminton train-multi --dataset dataset.json --family hist_gradient_boosting --model output/rally-state.joblib --report output/training-report.json
+smart-badminton regression-gate --dataset dataset.json --baseline-model models/rally-state.joblib --report output/regression.json
+smart-badminton train-guarded --dataset dataset.json --baseline-model models/rally-state.joblib --candidate-model output/candidate.joblib --gate-report output/regression.json
 ```
+
+Every regression source includes a SHA-256 for its reviewed rally CSV. `train-guarded` writes a candidate only after every held-out match passes recall, complete-rally coverage and premature-cut checks.
 
 The development footage used a locally frozen rally-state checkpoint trained from human-reviewed sources. That private dataset, model card and checkpoint are intentionally not published. Public users can train a camera-specific checkpoint with `train` or `train-multi`, then pass it with `--model`. Studio reports automatic analysis as unavailable when the file is absent; it never presents a missing bundled model as a working feature. Later shuttle tracking and action analysis remain independent of the rally-state artifact.
 
@@ -171,6 +175,7 @@ smart-badminton detect-tracknet --video input.mp4 --config camera.json --trackne
 smart-badminton fuse-shuttle --yolo output/shuttle-raw.csv --tracknet output/tracknet-raw.csv --config camera.json --output output/hybrid-raw.csv
 smart-badminton track-shuttle --video input.mp4 --config camera.json --detections output/hybrid-raw.csv --contact-features output/features.csv --annotations output/user-shuttle-points.csv --output output/shuttle-track.csv --preview output/shuttle-preview.mp4
 smart-badminton segment --features output/features.csv --probabilities output/probabilities.csv --shuttle-trajectory output/shuttle-track.csv --output output/rallies.csv
+smart-badminton fit-adapter --features output/features.csv --probabilities output/probabilities.csv --truth reviewed.csv --shuttle-trajectory output/shuttle-track.csv --output segmentation-adapter.json
 ```
 
 TrackNet uses an airspace crop and background mask to retain high clears while suppressing neighbouring courts. Inpainted points may bridge a short occlusion but cannot independently create landing or clip-boundary evidence.

@@ -657,7 +657,37 @@ def _select_primary_track_indices(
         )
         if winner == index:
             accepted.add(index)
-    return accepted
+    for index in candidates:
+        track_id = proposed[index]
+        if str(rows[index].get("detection_status") or "") == "manual":
+            ownership_evidence = "manual"
+            ownership_confidence = 1.0
+        elif contacts[index] >= 0.04 or track_contacts[track_id] >= 0.08:
+            ownership_evidence = "player_contact"
+            ownership_confidence = min(0.98, 0.78 + max(contacts[index], track_contacts[track_id]) * 0.30)
+        elif track_net_support[track_id] > 0:
+            ownership_evidence = "net_crossing"
+            ownership_confidence = min(0.92, 0.72 + track_net_support[track_id] * 0.18)
+        elif (
+            contexts[index] >= -0.15
+            and axis_scores[index] >= 0.18
+            and track_continuity.get(track_id, 0.0) >= 0.15
+        ) or (
+            geometry is None
+            and track_continuity.get(track_id, 0.0) >= 0.15
+        ):
+            ownership_evidence = "court_continuity"
+            ownership_confidence = float(
+                np.clip(0.52 + contexts[index] * 0.16 + track_continuity[track_id] * 0.20, 0.45, 0.82)
+            )
+        else:
+            ownership_evidence = "unknown"
+            ownership_confidence = float(np.clip(0.20 + scores[index] * 0.08, 0.05, 0.44))
+        if index not in accepted:
+            ownership_confidence = min(ownership_confidence, 0.35)
+        rows[index]["ownership_confidence"] = ownership_confidence
+        rows[index]["ownership_evidence"] = ownership_evidence
+    return {index for index in accepted if rows[index]["ownership_evidence"] != "unknown"}
 
 
 def _stitch_primary_flights(
@@ -888,6 +918,8 @@ def analyze_shuttle_trajectory(
         "source",
         "detection_status",
         "evidence_weight",
+        "ownership_confidence",
+        "ownership_evidence",
     ]
     output_rows = []
     for index, row in enumerate(rows):
@@ -913,6 +945,20 @@ def analyze_shuttle_trajectory(
         )
     output_rows.extend(recovered_rows)
     manual_rows = _manual_annotation_rows(annotations, output_rows)
+    accepted_by_track: dict[int, list[dict[str, float | int | str]]] = defaultdict(list)
+    for index, track_id in accepted.items():
+        accepted_by_track[track_id].append(rows[index])
+    for row in recovered_rows:
+        track_id = int(row["track_id"])
+        references = accepted_by_track.get(track_id, [])
+        row["ownership_confidence"] = max(
+            0.45,
+            min((float(item.get("ownership_confidence") or 0.45) for item in references), default=0.45) * 0.75,
+        )
+        row["ownership_evidence"] = "owned_continuity"
+    for row in manual_rows:
+        row["ownership_confidence"] = 1.0
+        row["ownership_evidence"] = "manual"
     output_rows.extend(manual_rows)
     output_rows.sort(key=lambda row: (float(row["time_seconds"]), int(row["frame"]), str(row["status"])))
     with output_csv.open("w", newline="", encoding="utf-8") as output:
@@ -928,6 +974,8 @@ def analyze_shuttle_trajectory(
                     "center_y": f"{float(row['center_y']):.3f}",
                     "width": f"{float(row['width']):.3f}",
                     "height": f"{float(row['height']):.3f}",
+                    "ownership_confidence": f"{float(row.get('ownership_confidence') or 0.0):.6f}",
+                    "ownership_evidence": str(row.get("ownership_evidence") or "unknown"),
                 }
             )
     return {

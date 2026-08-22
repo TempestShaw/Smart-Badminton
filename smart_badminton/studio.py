@@ -411,6 +411,13 @@ def _score_corrections_path(library: Path, video: Path) -> Path:
     return library / "Metadata" / f"{video.stem}-score-corrections.csv"
 
 
+def _segmentation_adapter_path(library: Path, video: Path) -> Path:
+    project_root = _project_root(library, video)
+    if project_root != library:
+        return project_root / "Metadata" / "segmentation-adapter.json"
+    return library / "Metadata" / f"{video.stem}-segmentation-adapter.json"
+
+
 def _trajectory_needs_refinement(
     features_path: Path,
     trajectory_path: Path,
@@ -1463,6 +1470,7 @@ def _analyze_video(state: StudioState, library: Path, video: Path, index: int, t
     stage("predict", "正在用标准答案模型判断每一球", 0.84)
     predict_model(features_csv, state.model, probabilities_csv)
     stage("segment", "正在生成保守、不漏球的时间表", 0.94)
+    adapter_path = _segmentation_adapter_path(library, video)
     intervals = segment_rallies(
         features_csv,
         probabilities_csv,
@@ -1475,6 +1483,7 @@ def _analyze_video(state: StudioState, library: Path, video: Path, index: int, t
         maximum_internal_gap=float(state.analysis_options["maximum_internal_gap"]),
         suppress_handoffs=bool(state.analysis_options["suppress_handoffs"]),
         shuttle_trajectory_csv=shuttle_track_csv if shuttle_track_csv.exists() else None,
+        adapter=adapter_path if adapter_path.exists() else None,
     )
     metadata = _video_metadata(video)
     public_rows = _public_segments(automatic_csv)

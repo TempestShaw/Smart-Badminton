@@ -1,0 +1,145 @@
+from __future__ import annotations
+
+import json
+import tempfile
+from dataclasses import asdict, dataclass
+from itertools import pairwise, product
+from pathlib import Path
+
+import numpy as np
+
+from .evaluate import evaluate_rallies
+from .io import load_rallies
+
+
+@dataclass(frozen=True)
+class SegmentationAdapter:
+    start_threshold: float = 0.56
+    keep_threshold: float = 0.30
+    preroll: float = 0.35
+    postroll: float = 0.55
+    end_pending: float = 0.55
+    maximum_internal_gap: float = 1.20
+    soft_gap_seconds: float = 0.0
+    gap_penalty: float = 0.20
+    orphan_action_probability_ceiling: float = 0.75
+    orphan_action_max_duration: float = 5.0
+    orphan_neighbor_gap: float = 3.0
+    split_handoff_before_serve: bool = False
+
+    @classmethod
+    def from_json(cls, path: Path) -> SegmentationAdapter:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+        values = payload.get("parameters", payload)
+        fields = cls.__dataclass_fields__
+        parsed = {}
+        for name, field in fields.items():
+            if name not in values:
+                continue
+            parsed[name] = bool(values[name]) if isinstance(field.default, bool) else float(values[name])
+        return cls(**parsed)
+
+    def write(self, path: Path, metadata: dict | None = None) -> None:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        payload = {"schema_version": 1, "parameters": asdict(self)}
+        if metadata:
+            payload["fit"] = metadata
+        path.write_text(json.dumps(payload, indent=2), encoding="utf-8")
+
+
+def _soft_gap_from_truth(truth_csv: Path) -> float:
+    rallies = load_rallies(truth_csv)
+    gaps = [start - previous_end for (_s, previous_end), (start, _e) in pairwise(rallies) if start > previous_end]
+    return round(float(np.quantile(gaps, 0.15)), 3) if gaps else 0.0
+
+
+def fit_segmentation_adapter(
+    features_csv: Path,
+    probabilities_csv: Path,
+    truth_csv: Path,
+    output_json: Path,
+    shuttle_trajectory_csv: Path | None = None,
+) -> dict:
+    from .segmenter import segment_rallies
+
+    soft_gap = _soft_gap_from_truth(truth_csv)
+    candidates: list[tuple[SegmentationAdapter, dict]] = []
+    with tempfile.TemporaryDirectory(prefix="smart-badminton-adapter-") as temporary_directory:
+        temporary_root = Path(temporary_directory)
+
+        def evaluate(adapter: SegmentationAdapter, number: int) -> dict:
+            output = temporary_root / f"candidate-{number:03d}.csv"
+            segment_rallies(
+                features_csv,
+                probabilities_csv,
+                output,
+                suppress_handoffs=True,
+                shuttle_trajectory_csv=shuttle_trajectory_csv,
+                adapter=adapter,
+            )
+            return evaluate_rallies(output, truth_csv)
+
+        thresholds = product(
+            (0.52, 0.56, 0.60),
+            (0.26, 0.30, 0.34),
+            (0.55, 0.70),
+            (0.14, 0.20),
+            (0.75, 0.88),
+            (False, True),
+        )
+        for number, (start, keep, end_pending, gap_penalty, orphan_ceiling, split_handoff) in enumerate(thresholds):
+            adapter = SegmentationAdapter(
+                start_threshold=start,
+                keep_threshold=keep,
+                end_pending=end_pending,
+                soft_gap_seconds=soft_gap,
+                gap_penalty=gap_penalty,
+                orphan_action_probability_ceiling=orphan_ceiling,
+                split_handoff_before_serve=split_handoff,
+            )
+            candidates.append((adapter, evaluate(adapter, number)))
+
+        best, best_report = min(
+            candidates,
+            key=lambda item: (
+                item[1]["editing_quality"]["editing_quality_loss"],
+                -item[1]["active_time_recall"],
+                -item[1]["active_time_precision"],
+            ),
+        )
+        buffer_candidates = []
+        offset = len(candidates)
+        for number, (preroll, postroll) in enumerate(product((0.20, 0.35, 0.55), (0.40, 0.55, 0.70)), offset):
+            adapter = SegmentationAdapter(
+                start_threshold=best.start_threshold,
+                keep_threshold=best.keep_threshold,
+                preroll=preroll,
+                postroll=postroll,
+                end_pending=best.end_pending,
+                soft_gap_seconds=soft_gap,
+                gap_penalty=best.gap_penalty,
+                orphan_action_probability_ceiling=best.orphan_action_probability_ceiling,
+                split_handoff_before_serve=best.split_handoff_before_serve,
+            )
+            buffer_candidates.append((adapter, evaluate(adapter, number)))
+        best, best_report = min(
+            [*candidates, *buffer_candidates],
+            key=lambda item: (
+                item[1]["editing_quality"]["editing_quality_loss"],
+                -item[1]["active_time_recall"],
+                -item[1]["active_time_precision"],
+            ),
+        )
+
+    metadata = {
+        "truth": str(truth_csv),
+        "evaluated_candidates": len(candidates) + len(buffer_candidates),
+        "metrics": {
+            "active_time_precision": best_report["active_time_precision"],
+            "active_time_recall": best_report["active_time_recall"],
+            "active_time_f1": best_report["active_time_f1"],
+            "editing_quality": best_report["editing_quality"],
+        },
+    }
+    best.write(output_json, metadata)
+    return {"adapter": asdict(best), **metadata}

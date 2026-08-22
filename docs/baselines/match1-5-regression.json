@@ -1,0 +1,37 @@
+{
+  "schema_version": 1,
+  "sources": [
+    {
+      "id": "Match1",
+      "features": "../../2026-08-19/Analysis/0007-blind/smart-features.csv",
+      "rallies": "../../2026-08-19/Standard_Answers/0007_rallies_ground_truth.csv",
+      "truth_sha256": "dde7550f77b7dca313bef22fdfc550d296fb4d903df28e5018945f0d8527d477"
+    },
+    {
+      "id": "Match2",
+      "features": "../../2026-08-19/split/Match2/Analysis/smart-features.csv",
+      "rallies": "../../2026-08-19/Standard_Answers/Match2_rallies_ground_truth.csv",
+      "truth_sha256": "0efdb6bb9d5e4e3b4ab1742c3e6b42fd725472b72e0f5918fd5fd0a20b6fea32"
+    },
+    {
+      "id": "Match3",
+      "features": "../../2026-08-19/split/Match3/Analysis/smart-features.csv",
+      "rallies": "../../2026-08-19/Standard_Answers/Match3_rallies_ground_truth.csv",
+      "truth_sha256": "eb5d214e01fd4d5731cddeea8c7e9331b6bf2193e1c5fbc171d1af1e8e537e2c"
+    },
+    {
+      "id": "Match4",
+      "features": "../../2026-08-19/split/Match4/Analysis/smart-features.csv",
+      "rallies": "../../2026-08-19/Standard_Answers/Match4_rallies_ground_truth.csv",
+      "truth_sha256": "5c9e3d6e86ea3cf9f82e8ede1c0469abd0c11e84b3519c2dd0ec547fb4f077e7"
+    },
+    {
+      "id": "Match5",
+      "features": "../../2026-08-19/split/Match5/Analysis/smart-features.csv",
+      "rallies": "../../2026-08-19/Standard_Answers/Match5_rallies_ground_truth.csv",
+      "trajectory": "../../2026-08-19/Training/Baselines/match5-shuttle-track-v4.csv",
+      "trajectory_sha256": "7bfb6e8fecba53fd66e4dd8b53a06137476054922fe52e3ff571bc1811488536",
+      "truth_sha256": "caffd362fc74f67a704eb7ac8d72c3a46d4146b397ccfddcd19f1895cddb6ee7"
+    }
+  ]
+}

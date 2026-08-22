@@ -6,6 +6,7 @@ from pathlib import Path
 
 import cv2
 
+from .adaptation import fit_segmentation_adapter
 from .analytics import analyze_rally_actions
 from .audio import analyze_audio
 from .contacts import analyze_contacts
@@ -16,6 +17,7 @@ from .features import extract_features
 from .geometry import CourtGeometry, draw_geometry_preview
 from .hybrid import fuse_shuttle_detections
 from .model import MODEL_FAMILIES, benchmark_multi_models, predict_model, train_model, train_multi_model
+from .regression import regression_gate, train_guarded_candidate
 from .render import render_rallies
 from .review import render_boundary_reviews
 from .scoring import analyze_score, evaluate_score
@@ -148,6 +150,18 @@ def main() -> None:
     benchmark.add_argument("--dataset", type=path, required=True)
     benchmark.add_argument("--report", type=path, required=True)
     benchmark.add_argument("--families", nargs="+", choices=MODEL_FAMILIES)
+    gate = commands.add_parser("regression-gate")
+    gate.add_argument("--dataset", type=path, required=True)
+    gate.add_argument("--baseline-model", type=path, required=True)
+    gate.add_argument("--report", type=path, required=True)
+    gate.add_argument("--family", choices=MODEL_FAMILIES, default="hist_gradient_boosting")
+    guarded_train = commands.add_parser("train-guarded")
+    guarded_train.add_argument("--dataset", type=path, required=True)
+    guarded_train.add_argument("--baseline-model", type=path, required=True)
+    guarded_train.add_argument("--candidate-model", type=path, required=True)
+    guarded_train.add_argument("--gate-report", type=path, required=True)
+    guarded_train.add_argument("--training-report", type=path)
+    guarded_train.add_argument("--family", choices=MODEL_FAMILIES, default="hist_gradient_boosting")
     predict = commands.add_parser("predict")
     predict.add_argument("--features", type=path, required=True)
     predict.add_argument("--model", type=path, required=True)
@@ -164,6 +178,13 @@ def main() -> None:
     segment.add_argument("--maximum-internal-gap", type=float, default=1.2)
     segment.add_argument("--keep-handoffs", action="store_true")
     segment.add_argument("--shuttle-trajectory", type=path)
+    segment.add_argument("--adapter", type=path)
+    fit_adapter = commands.add_parser("fit-adapter")
+    fit_adapter.add_argument("--features", type=path, required=True)
+    fit_adapter.add_argument("--probabilities", type=path, required=True)
+    fit_adapter.add_argument("--truth", type=path, required=True)
+    fit_adapter.add_argument("--output", type=path, required=True)
+    fit_adapter.add_argument("--shuttle-trajectory", type=path)
     evaluate = commands.add_parser("evaluate")
     evaluate.add_argument("--predicted", type=path, required=True)
     evaluate.add_argument("--truth", type=path, required=True)
@@ -394,6 +415,22 @@ def main() -> None:
         print(json.dumps(train_multi_model(args.dataset, args.model, args.report, args.family), indent=2))
     elif args.command == "benchmark-models":
         print(json.dumps(benchmark_multi_models(args.dataset, args.report, args.families), indent=2))
+    elif args.command == "regression-gate":
+        print(json.dumps(regression_gate(args.dataset, args.baseline_model, args.report, args.family), indent=2))
+    elif args.command == "train-guarded":
+        print(
+            json.dumps(
+                train_guarded_candidate(
+                    args.dataset,
+                    args.baseline_model,
+                    args.candidate_model,
+                    args.gate_report,
+                    args.training_report,
+                    args.family,
+                ),
+                indent=2,
+            )
+        )
     elif args.command == "predict":
         predict_model(args.features, args.model, args.output)
     elif args.command == "segment":
@@ -409,8 +446,22 @@ def main() -> None:
             args.maximum_internal_gap,
             not args.keep_handoffs,
             args.shuttle_trajectory,
+            args.adapter,
         )
         print(f"rallies={len(result)} output={args.output}")
+    elif args.command == "fit-adapter":
+        print(
+            json.dumps(
+                fit_segmentation_adapter(
+                    args.features,
+                    args.probabilities,
+                    args.truth,
+                    args.output,
+                    args.shuttle_trajectory,
+                ),
+                indent=2,
+            )
+        )
     elif args.command == "evaluate":
         print(json.dumps(evaluate_rallies(args.predicted, args.truth, args.output), indent=2))
     elif args.command == "review":

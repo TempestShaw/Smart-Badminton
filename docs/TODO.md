@@ -30,12 +30,14 @@ Status: `[x]` complete, `[~]` implemented but awaiting broader video validation,
 - [~] Infer which player is serving/receiving and require the receiver, specifically, to become ready.
 - [~] Adapt near/far readiness thresholds to the current video's observed stance and foot-speed distributions.
 - [x] Save user corrections as phase examples without retraining the frozen rally-state model.
+- [x] Fit per-video thresholds and soft gap behavior in a metadata adapter without changing the global model.
 
 ## P1 - One continuous shuttle flight
 
 - [x] Reject persistent venue lights and other stationary detections.
 - [x] Use a perspective flight volume so high clears can leave the old 2D aerial polygon.
 - [x] Reject simultaneous neighbouring-court candidates through single-shuttle competition.
+- [x] Require player contact, net crossing, active-court continuity or manual confirmation before a track can affect editing.
 - [x] Stitch accepted tracklets into one `flight_id` across short occlusions.
 - [~] Use bounded ballistic prediction plus endpoint-validated optical-flow recovery for motion blur and short gaps.
 - [~] Use player/racket contact to choose between ambiguous tracklets that both pass the court projection.
@@ -54,6 +56,7 @@ Status: `[x]` complete, `[~]` implemented but awaiting broader video validation,
 - [x] Infer a previous rally winner from the following high-confidence formal server, while keeping ambiguous and final rallies unresolved.
 - [x] Label partial score coverage honestly in Studio instead of presenting unresolved rallies as zero points.
 - [x] Evaluate scoring separately from editing; uncertain events never change a cut automatically.
+- [x] Disable next-server scoring for a video when manual results expose a camera-side bias.
 
 ## P2 - Action and entertainment features
 
@@ -61,6 +64,8 @@ Status: `[x]` complete, `[~]` implemented but awaiting broader video validation,
 - [x] Add candidate shot types, court heatmap, rally pace and explainable highlight cards.
 
 ## P1 - Open-source readiness
+
+- [x] Gate candidate rally models with truth hashes and leave-one-match-out edit-quality regression.
 
 - [x] License the project source under Apache-2.0 while keeping model and optional runtime rights separate.
 - [x] Exclude exploratory/private artifacts and publish a clear repository/data directory policy.

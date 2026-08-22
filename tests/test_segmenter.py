@@ -39,7 +39,7 @@ def test_padding_overlap_is_deduplicated(tmp_path: Path) -> None:
     assert result[0].end <= result[1].start
 
 
-def test_learned_gap_prior_blocks_an_immediate_unsupported_restart(tmp_path: Path) -> None:
+def test_learned_gap_prior_softly_penalizes_an_immediate_unsupported_restart(tmp_path: Path) -> None:
     times = np.round(np.arange(0.0, 8.0, 0.1), 3)
     active = ((times >= 1.0) & (times <= 2.5)) | ((times >= 3.4) & (times <= 4.9))
     frame = pd.DataFrame(
@@ -47,6 +47,45 @@ def test_learned_gap_prior_blocks_an_immediate_unsupported_restart(tmp_path: Pat
             "time_seconds": times,
             "frame_index": np.arange(len(times)),
             "near_swing_score": 0.0,
+            "far_swing_score": 0.0,
+            "near_lunge_score": 0.0,
+            "far_lunge_score": 0.0,
+            "near_flow_mean": 0.0,
+            "far_flow_mean": 0.0,
+            "near_motion_fraction": 0.0,
+            "far_motion_fraction": 0.0,
+            "audio_hit_score": 0.0,
+            "shuttle_visible": 0.0,
+            "shuttle_speed_normalized": 0.0,
+        }
+    )
+    features_path = tmp_path / "features.csv"
+    probabilities_path = tmp_path / "probabilities.csv"
+    output_path = tmp_path / "rallies.csv"
+    frame.to_csv(features_path, index=False)
+    pd.DataFrame(
+        {
+            "time_seconds": times,
+            "frame_index": frame.frame_index,
+            "rally_probability": np.where((times >= 1.0) & (times <= 2.5), 0.95, np.where(active, 0.65, 0.01)),
+            "gap_hard_min_seconds": 2.0,
+            "gap_soft_min_seconds": 4.0,
+        }
+    ).to_csv(probabilities_path, index=False)
+
+    result = segment_rallies(features_path, probabilities_path, output_path)
+
+    assert len(result) == 1
+
+
+def test_short_gap_cannot_block_a_strong_formal_rally_candidate(tmp_path: Path) -> None:
+    times = np.round(np.arange(0.0, 8.0, 0.1), 3)
+    active = ((times >= 1.0) & (times <= 2.5)) | ((times >= 3.4) & (times <= 4.9))
+    frame = pd.DataFrame(
+        {
+            "time_seconds": times,
+            "frame_index": np.arange(len(times)),
+            "near_swing_score": np.where(active, 0.7, 0.0),
             "far_swing_score": 0.0,
             "near_lunge_score": 0.0,
             "far_lunge_score": 0.0,
@@ -75,7 +114,7 @@ def test_learned_gap_prior_blocks_an_immediate_unsupported_restart(tmp_path: Pat
 
     result = segment_rallies(features_path, probabilities_path, output_path)
 
-    assert len(result) == 1
+    assert len(result) == 2
 
 
 def test_precision_mode_suppresses_weak_handoff_between_real_exchanges(tmp_path: Path) -> None:
@@ -688,3 +727,28 @@ def test_complete_handoff_flight_stays_between_points_until_formal_serve(tmp_pat
     assert result[0].end < 3.0
     assert result[1].start >= 5.5
     assert result[0].end < 4.0
+
+
+def test_unknown_neighbor_trajectory_is_not_editing_evidence(tmp_path: Path) -> None:
+    times = np.round(np.arange(0.0, 3.0, 0.1), 3)
+    frame = pd.DataFrame({"time_seconds": times, "rally_probability": 0.05})
+    trajectory = tmp_path / "trajectory.csv"
+    pd.DataFrame(
+        {
+            "time_seconds": [1.0, 1.1, 1.2, 1.3],
+            "center_x": [1400, 1450, 1500, 1550],
+            "center_y": [300, 350, 420, 500],
+            "source_width": 1920,
+            "source_height": 1080,
+            "status": "tracked",
+            "track_id": 1,
+            "flight_id": 1,
+            "ownership_confidence": 0.25,
+            "ownership_evidence": "unknown",
+        }
+    ).to_csv(trajectory, index=False)
+
+    evidence = build_rally_evidence(frame, trajectory)
+
+    assert not np.any(evidence.trajectory_visible)
+    assert not np.any(evidence.protected_flight)

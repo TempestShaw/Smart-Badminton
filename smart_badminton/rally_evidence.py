@@ -106,6 +106,11 @@ def _trajectory_signals(
         for row in csv.DictReader(source):
             if row.get("status") not in {"tracked", "recovered", "manual"}:
                 continue
+            ownership_evidence = str(row.get("ownership_evidence") or "").strip().lower()
+            if ownership_evidence:
+                ownership_confidence = float(row.get("ownership_confidence") or 0.0)
+                if ownership_evidence == "unknown" or ownership_confidence < 0.45:
+                    continue
             flight_or_track = row.get("flight_id") or row.get("track_id")
             if not flight_or_track:
                 continue

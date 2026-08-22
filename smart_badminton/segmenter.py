@@ -7,6 +7,7 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 
+from .adaptation import SegmentationAdapter
 from .rally_evidence import RallyEvidence, build_rally_evidence
 
 
@@ -50,6 +51,9 @@ def _suppress_probable_handoffs(
     probability: np.ndarray,
     audio: np.ndarray,
     evidence: RallyEvidence | None = None,
+    orphan_action_probability_ceiling: float = 0.75,
+    orphan_action_max_duration: float = 5.0,
+    orphan_neighbor_gap: float = 3.0,
 ) -> list[Interval]:
     """Remove weak isolated actions while preserving trajectory-backed serves."""
     if len(intervals) < 2:
@@ -59,19 +63,20 @@ def _suppress_probable_handoffs(
         core_start = interval.core_start if interval.core_start is not None else interval.start
         core_end = interval.core_end if interval.core_end is not None else interval.end
         mask = (times >= core_start - 1e-6) & (times <= core_end + 1e-6)
+        start_mask = mask & (times <= interval.start + 1.80)
         maximum_probability = float(np.max(probability[mask])) if np.any(mask) else 0.0
+        formal_serve = bool(evidence is not None and np.any(start_mask & evidence.formal_serve))
+        trajectory_serve = bool(evidence is not None and np.any(start_mask & evidence.trajectory_serve_start))
+        trajectory_contact = bool(
+            evidence is not None and np.any(start_mask & evidence.trajectory_contact_start)
+        )
         statistics.append(
             {
                 "maximum_probability": maximum_probability,
                 "audio_events": _audio_event_count(times, audio, core_start, core_end),
                 "duration": interval.end - interval.start,
-                "serve_start": bool(
-                    evidence is not None
-                    and np.any(
-                        mask
-                        & (evidence.formal_serve | evidence.trajectory_serve_start)
-                    )
-                ),
+                "formal_serve": formal_serve,
+                "credible_start": formal_serve or (trajectory_serve and trajectory_contact),
                 "complete_trajectory": interval.start_locked and interval.end_locked,
                 "between_points": bool(evidence is not None and np.any(mask & evidence.between_points)),
             }
@@ -80,7 +85,7 @@ def _suppress_probable_handoffs(
     keep = [True] * len(intervals)
     for index, interval in enumerate(intervals):
         stats = statistics[index]
-        if stats["serve_start"] or (stats["complete_trajectory"] and not stats["between_points"]):
+        if stats["credible_start"]:
             continue
         previous_gap = interval.start - intervals[index - 1].end if index else math.inf
         next_gap = intervals[index + 1].start - interval.end if index + 1 < len(intervals) else math.inf
@@ -108,7 +113,14 @@ def _suppress_probable_handoffs(
             and stats["maximum_probability"] < 0.75
             and stats["audio_events"] == 0
         )
-        if sandwiched_weak_action or weak_before_strong_exchange or opening_non_hit:
+        near_another_point = min(previous_gap, next_gap) <= orphan_neighbor_gap
+        orphan_action = (
+            near_another_point
+            and stats["duration"] <= orphan_action_max_duration
+            and stats["maximum_probability"] < orphan_action_probability_ceiling
+            and stats["audio_events"] <= 1
+        )
+        if sandwiched_weak_action or weak_before_strong_exchange or opening_non_hit or orphan_action:
             keep[index] = False
     return [interval for index, interval in enumerate(intervals) if keep[index]]
 
@@ -120,6 +132,7 @@ def _refine_handoff_and_serve_phases(
     evidence: RallyEvidence,
     preroll: float,
     postroll: float,
+    split_handoff_before_serve: bool = False,
 ) -> list[Interval]:
     """Split broad intervals at trajectory-backed formal serves."""
     refined: list[Interval] = []
@@ -189,7 +202,23 @@ def _refine_handoff_and_serve_phases(
                     changed = True
                 cursor = shared_cut
             else:
-                if (
+                if split_handoff_before_serve and marker_time - cursor > 1.5:
+                    previous_end = next_start
+                    refined.append(
+                        Interval(
+                            cursor,
+                            previous_end,
+                            interval.confidence,
+                            interval.reason + "; handoff separated before next serve",
+                            True,
+                            interval.core_start,
+                            next_start,
+                        )
+                    )
+                    emitted_previous = True
+                    cursor = next_start
+                    changed = True
+                elif (
                     not interval.start_locked
                     and marker_time - cursor <= 3.0
                     and cursor <= interval.start + 0.05
@@ -233,11 +262,25 @@ def segment_rallies(
     maximum_internal_gap: float = 1.2,
     suppress_handoffs: bool = True,
     shuttle_trajectory_csv: Path | None = None,
+    adapter: SegmentationAdapter | Path | None = None,
 ) -> list[Interval]:
+    if isinstance(adapter, Path):
+        adapter = SegmentationAdapter.from_json(adapter)
+    if adapter is not None:
+        start_threshold = adapter.start_threshold
+        keep_threshold = adapter.keep_threshold
+        preroll = adapter.preroll
+        postroll = adapter.postroll
+        end_pending = adapter.end_pending
+        maximum_internal_gap = adapter.maximum_internal_gap
     features = pd.read_csv(features_csv)
     probabilities = pd.read_csv(probabilities_csv)
-    gap_hard_min = _gap_prior_value(probabilities, "gap_hard_min_seconds")
-    gap_soft_min = max(gap_hard_min, _gap_prior_value(probabilities, "gap_soft_min_seconds"))
+    gap_soft_min = (
+        adapter.soft_gap_seconds
+        if adapter is not None and adapter.soft_gap_seconds > 0
+        else _gap_prior_value(probabilities, "gap_soft_min_seconds")
+    )
+    gap_penalty = adapter.gap_penalty if adapter is not None else 0.20
     data = features.merge(probabilities[["time_seconds", "rally_probability"]], on="time_seconds", how="inner")
     times = data.time_seconds.to_numpy(dtype=float)
     if len(times) < 2:
@@ -273,16 +316,20 @@ def segment_rallies(
         formal_start = bool(fused.formal_serve[index] or fused.trajectory_serve_start[index])
         if not active and may_start and intervals and not formal_start and gap_soft_min > 0:
             gap = float(time_seconds) - intervals[-1].end
-            if gap < gap_hard_min:
-                may_start = False
-            elif gap < gap_soft_min:
-                gap_range = max(gap_soft_min - gap_hard_min, 1e-6)
-                strength_required = start_threshold + 0.20 * (gap_soft_min - gap) / gap_range
-                supported = bool(
-                    fused.trajectory_contact_start[index]
-                    or (evidence[index] >= 0.45 and float(audio.iloc[index]) >= 0.12)
+            if gap < gap_soft_min:
+                support_credit = max(
+                    1.0 if fused.trajectory_contact_start[index] else 0.0,
+                    0.65 if fused.players_ready[index] else 0.0,
+                    min(0.55, float(evidence[index]) * 0.65),
+                    0.45 if float(audio.iloc[index]) >= 0.12 else 0.0,
                 )
-                may_start = supported and probability[index] >= strength_required
+                strength_required = start_threshold + gap_penalty * (1.0 - gap / gap_soft_min) * (
+                    1.0 - support_credit
+                )
+                may_start = bool(
+                    fused.trajectory_contact_start[index]
+                    or probability[index] >= strength_required
+                )
         if not active and may_start:
             active = True
             start = max(float(times[0]), time_seconds - preroll)
@@ -363,6 +410,9 @@ def segment_rallies(
             probability,
             audio.to_numpy(dtype=float),
             fused,
+            adapter.orphan_action_probability_ceiling if adapter is not None else 0.75,
+            adapter.orphan_action_max_duration if adapter is not None else 5.0,
+            adapter.orphan_neighbor_gap if adapter is not None else 3.0,
         )
         intervals = _refine_handoff_and_serve_phases(
             intervals,
@@ -371,6 +421,7 @@ def segment_rallies(
             fused,
             preroll,
             postroll,
+            adapter.split_handoff_before_serve if adapter is not None else False,
         )
 
     merged: list[Interval] = []
