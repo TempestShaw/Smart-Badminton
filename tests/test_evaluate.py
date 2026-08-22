@@ -27,3 +27,23 @@ def test_editing_loss_prioritizes_premature_cuts_over_extra_context(tmp_path: Pa
     padded_loss = evaluate_rallies(padded, truth)["editing_quality"]["editing_quality_loss"]
 
     assert early_loss > padded_loss
+
+
+def test_editing_quality_penalizes_merged_rallies(tmp_path: Path) -> None:
+    truth = tmp_path / "truth.csv"
+    merged = tmp_path / "merged.csv"
+    split = tmp_path / "split.csv"
+    truth.write_text(
+        "rally,start_seconds,end_seconds\n1,1,3\n2,6,8\n", encoding="utf-8"
+    )
+    merged.write_text("rally,start_seconds,end_seconds\n1,1,8\n", encoding="utf-8")
+    split.write_text(
+        "rally,start_seconds,end_seconds\n1,1,3\n2,6,8\n", encoding="utf-8"
+    )
+
+    merged_quality = evaluate_rallies(merged, truth)["editing_quality"]
+    split_quality = evaluate_rallies(split, truth)["editing_quality"]
+
+    assert merged_quality["merged_predicted_intervals"] == 1
+    assert merged_quality["merged_truth_rallies"] == 1
+    assert merged_quality["editing_quality_loss"] > split_quality["editing_quality_loss"]

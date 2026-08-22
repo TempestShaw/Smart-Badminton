@@ -63,12 +63,35 @@ def editing_quality_metrics(
         max(0.0, first[1] - second[0])
         for first, second in zip(sorted(predicted), sorted(predicted)[1:])
     )
+    meaningful_overlaps = []
+    for candidate in predicted:
+        covered_truth = [
+            target
+            for target in truth
+            if _overlap_length(candidate, target)
+            >= min(0.50, max(0.10, (target[1] - target[0]) * 0.10))
+        ]
+        meaningful_overlaps.append(len(covered_truth))
+    merged_predicted_intervals = sum(count > 1 for count in meaningful_overlaps)
+    merged_truth_rallies = sum(max(0, count - 1) for count in meaningful_overlaps)
+
+    fragmented_truth_rallies = 0
+    for target in truth:
+        covering_predictions = sum(
+            _overlap_length(candidate, target)
+            >= min(0.50, max(0.10, (target[1] - target[0]) * 0.10))
+            for candidate in predicted
+        )
+        fragmented_truth_rallies += int(covering_predictions > 1)
+    rally_count_error = abs(len(predicted) - len(truth))
     loss = (
-        premature_cut_seconds * 10.0
-        + missed_rallies * 30.0
-        + incomplete_rallies * 15.0
-        + false_positive_seconds * 3.0
-        + adjacent_overlap_seconds * 5.0
+        premature_cut_seconds * 80.0
+        + missed_rallies * 120.0
+        + incomplete_rallies * 60.0
+        + merged_truth_rallies * 20.0
+        + fragmented_truth_rallies * 20.0
+        + false_positive_seconds
+        + adjacent_overlap_seconds * 12.0
     )
     return {
         "premature_cut_seconds": premature_cut_seconds,
@@ -77,6 +100,10 @@ def editing_quality_metrics(
         "uncovered_truth_seconds": uncovered_truth_seconds,
         "false_positive_seconds": false_positive_seconds,
         "adjacent_overlap_seconds": adjacent_overlap_seconds,
+        "merged_predicted_intervals": merged_predicted_intervals,
+        "merged_truth_rallies": merged_truth_rallies,
+        "fragmented_truth_rallies": fragmented_truth_rallies,
+        "rally_count_error": rally_count_error,
         "editing_quality_loss": loss,
     }
 

@@ -32,6 +32,7 @@ Status: `[x]` complete, `[~]` implemented but awaiting broader video validation,
 - [x] Save user corrections as phase examples without retraining the frozen rally-state model.
 - [x] Fit per-video thresholds and soft gap behavior in a metadata adapter without changing the global model.
 - [x] Filter handoff intervals with per-video quality features while preserving recall and complete-rally coverage.
+- [x] Learn formal-start timing and sustained quiet gaps locally to split merged rallies without changing v4.
 
 ## P1 - One continuous shuttle flight
 
@@ -67,6 +68,7 @@ Status: `[x]` complete, `[~]` implemented but awaiting broader video validation,
 ## P1 - Open-source readiness
 
 - [x] Gate candidate rally models with truth hashes and leave-one-match-out edit-quality regression.
+- [x] Measure merged rallies, fragmented rallies, extra context and overlap in the promotion loss.
 
 - [x] License the project source under Apache-2.0 while keeping model and optional runtime rights separate.
 - [x] Exclude exploratory/private artifacts and publish a clear repository/data directory policy.
@@ -83,6 +85,8 @@ Status: `[x]` complete, `[~]` implemented but awaiting broader video validation,
 - `features.py`: raw per-frame motion, pose, audio and shuttle measurements.
 - `model.py`: frozen rally-state classifier training, benchmarking and inference.
 - `rally_evidence.py`: pure post-model evidence fusion and phase signals.
+- `start_quality.py`: per-video formal-start feature models.
+- `local_boundaries.py`: local start timing, boundary coalescing and quiet-gap splitting.
 - `segmenter.py`: conservative rally state machine and boundary decisions.
 - `trajectory.py`: false-positive removal, tracklets, competition and flight stitching.
 - `shuttle_annotations.py`: validation, atomic persistence and backups for user shuttle points/rejections.

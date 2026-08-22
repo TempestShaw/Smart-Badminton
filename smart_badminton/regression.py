@@ -137,6 +137,16 @@ def regression_gate(
                 > baseline_report["editing_quality"]["premature_cut_seconds"] + 0.20
             ):
                 failures.append("premature_cut")
+            if (
+                candidate_report["editing_quality"].get("merged_truth_rallies", 0)
+                > baseline_report["editing_quality"].get("merged_truth_rallies", 0)
+            ):
+                failures.append("merged_rallies")
+            if (
+                candidate_report["editing_quality"].get("fragmented_truth_rallies", 0)
+                > baseline_report["editing_quality"].get("fragmented_truth_rallies", 0)
+            ):
+                failures.append("fragmented_rallies")
             folds.append(
                 {
                     "held_out": held_out["id"],

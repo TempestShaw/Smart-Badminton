@@ -3,8 +3,10 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 
-from smart_badminton.rally_evidence import build_rally_evidence
-from smart_badminton.segmenter import segment_rallies
+from smart_badminton.adaptation import SegmentationAdapter
+from smart_badminton.local_boundaries import split_at_local_starts
+from smart_badminton.rally_evidence import RallyEvidence, build_rally_evidence
+from smart_badminton.segmenter import Interval, segment_rallies
 
 
 def test_padding_overlap_is_deduplicated(tmp_path: Path) -> None:
@@ -752,3 +754,139 @@ def test_unknown_neighbor_trajectory_is_not_editing_evidence(tmp_path: Path) -> 
 
     assert not np.any(evidence.trajectory_visible)
     assert not np.any(evidence.protected_flight)
+
+
+def test_local_start_adapter_splits_a_merged_interval(tmp_path: Path) -> None:
+    times = np.round(np.arange(0.0, 10.0, 0.1), 3)
+    contacts = np.isclose(times, 1.0) | np.isclose(times, 6.0)
+    frame = pd.DataFrame(
+        {
+            "time_seconds": times,
+            "near_swing_score": np.where(contacts, 0.55, 0.0),
+            "far_swing_score": 0.0,
+            "near_lunge_score": 0.0,
+            "far_lunge_score": 0.0,
+            "near_flow_mean": 0.0,
+            "far_flow_mean": 0.0,
+            "near_motion_fraction": 0.0,
+            "far_motion_fraction": 0.0,
+            "audio_hit_score": 0.0,
+            "shuttle_visible": 0.0,
+            "shuttle_speed_normalized": 0.0,
+        }
+    )
+    features = tmp_path / "features.csv"
+    probabilities = tmp_path / "probabilities.csv"
+    trajectory = tmp_path / "trajectory.csv"
+    output = tmp_path / "rallies.csv"
+    frame.to_csv(features, index=False)
+    pd.DataFrame({"time_seconds": times, "rally_probability": 0.92}).to_csv(
+        probabilities, index=False
+    )
+    rows = []
+    for flight_id, start in enumerate((1.0, 6.0), 1):
+        for offset in range(5):
+            rows.append(
+                {
+                    "time_seconds": start + offset * 0.2,
+                    "center_x": 500 + offset * 80,
+                    "center_y": 600 - offset * 50,
+                    "source_width": 1920,
+                    "source_height": 1080,
+                    "status": "tracked",
+                    "track_id": flight_id,
+                    "flight_id": flight_id,
+                }
+            )
+    pd.DataFrame(rows).to_csv(trajectory, index=False)
+    start_model = {
+        "type": "decision_tree",
+        "feature_names": ["trajectory_flight_start"],
+        "children_left": [-1],
+        "children_right": [-1],
+        "split_features": [-2],
+        "thresholds": [-2.0],
+        "positive_probability": [1.0],
+        "threshold": 0.9,
+        "lead_seconds": 0.3,
+        "dedupe_seconds": 1.0,
+        "quiet_probability_ceiling": 0.2,
+        "quiet_min_seconds": 0.6,
+        "quiet_search_seconds": 6.0,
+    }
+
+    result = segment_rallies(
+        features,
+        probabilities,
+        output,
+        shuttle_trajectory_csv=trajectory,
+        adapter=SegmentationAdapter(start_quality=start_model),
+    )
+
+    assert len(result) == 2
+    assert result[0].end <= result[1].start
+
+
+def test_local_adapter_splits_a_sustained_quiet_gap_without_a_serve_candidate() -> None:
+    times = np.round(np.arange(0.0, 10.1, 0.1), 3)
+    probability = np.where((times >= 4.0) & (times <= 6.0), 0.05, 0.92)
+    zeros = np.zeros(len(times), dtype=bool)
+    flight_start = zeros.copy()
+    flight_start[10] = True
+    evidence = RallyEvidence(
+        activity=np.full(len(times), 0.8),
+        player_engagement=np.full(len(times), 0.5),
+        trajectory_visible=zeros.copy(),
+        trajectory_descending=zeros.copy(),
+        trajectory_occluded=zeros.copy(),
+        trajectory_flight_start=flight_start,
+        trajectory_flight_end=zeros.copy(),
+        trajectory_serve_start=zeros.copy(),
+        trajectory_contact_start=zeros.copy(),
+        landing_candidate=zeros.copy(),
+        protected_flight=zeros.copy(),
+        near_ready=zeros.copy(),
+        far_ready=zeros.copy(),
+        players_ready=zeros.copy(),
+        between_points=zeros.copy(),
+        handoff_candidate=zeros.copy(),
+        formal_serve=zeros.copy(),
+        near_serving=zeros.copy(),
+        far_serving=zeros.copy(),
+        serve_confidence=np.zeros(len(times)),
+    )
+    data = pd.DataFrame(
+        {
+            "time_seconds": times,
+            "rally_probability": probability,
+            "audio_hit_score": 0.0,
+            "near_swing_score": 0.0,
+            "far_swing_score": 0.0,
+        }
+    )
+    model = {
+        "feature_names": ["trajectory_flight_start"],
+        "children_left": [-1],
+        "children_right": [-1],
+        "split_features": [-2],
+        "thresholds": [-2.0],
+        "positive_probability": [1.0],
+        "threshold": 0.9,
+        "lead_seconds": 1.0,
+        "dedupe_seconds": 1.0,
+        "quiet_gap_probability_ceiling": 0.2,
+        "quiet_gap_window_seconds": 1.0,
+        "quiet_gap_min_seconds": 0.6,
+    }
+
+    result = split_at_local_starts(
+        [Interval(0.0, 10.0, 0.9, "test")],
+        data,
+        times,
+        probability,
+        evidence,
+        model,
+    )
+
+    assert len(result) == 2
+    assert result[0].end < result[1].start

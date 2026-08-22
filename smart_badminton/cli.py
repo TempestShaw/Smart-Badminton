@@ -192,6 +192,7 @@ def main() -> None:
     fit_adapter.add_argument("--truth", type=path, required=True)
     fit_adapter.add_argument("--output", type=path, required=True)
     fit_adapter.add_argument("--shuttle-trajectory", type=path)
+    fit_adapter.add_argument("--base-adapter", type=path)
     evaluate = commands.add_parser("evaluate")
     evaluate.add_argument("--predicted", type=path, required=True)
     evaluate.add_argument("--truth", type=path, required=True)
@@ -478,6 +479,7 @@ def main() -> None:
                     args.truth,
                     args.output,
                     args.shuttle_trajectory,
+                    args.base_adapter,
                 ),
                 indent=2,
             )

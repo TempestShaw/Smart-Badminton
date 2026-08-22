@@ -61,7 +61,7 @@ An optional ordered four-point homography maps image coordinates to the 6.1 m by
 
 ## Boundary safety
 
-The classifier estimates `RALLY_ACTIVE`; the state machine owns the cut. A trajectory-backed serve can recover a missed opening after both players become ready. During play, a qualified flight keeps the interval open through descent and short occlusion. A confirmed landing locks the ending so the following handoff cannot extend it. Every accepted interval receives adjustable pre-roll and post-roll (the precision preset defaults to 0.35 s and 0.55 s). The handoff filter suppresses weak isolated actions, while trajectory-backed serve boundaries are preserved. Neighboring buffers share one quiet boundary instead of replaying the same source range.
+The classifier estimates `RALLY_ACTIVE`; the state machine owns the cut. A trajectory-backed serve can recover a missed opening after both players become ready. During play, a qualified flight keeps the interval open through descent and short occlusion. A confirmed landing locks the ending so the following handoff cannot extend it. Every accepted interval receives adjustable pre-roll and post-roll (the precision preset defaults to 0.35 s and 0.55 s). The handoff filter suppresses weak isolated actions, while trajectory-backed serve boundaries are preserved. A per-video adapter can identify formal starts, coalesce unsupported boundaries and split a long interval at a sustained probability valley. Neighboring buffers share one quiet boundary instead of replaying the same source range.
 
 ## Entertainment analytics and score evidence
 
@@ -75,4 +75,4 @@ Action analytics reuse the sampled pose, motion, audio and shuttle features afte
 
 ## Training and evaluation
 
-Reviewed start/end ranges label the feature timeline without frame-by-frame shuttle annotation. Segmentation uses the reviewed gap distribution as a soft restart prior. `regression-gate` verifies truth hashes and holds out every match in turn. `fit-adapter` learns per-video thresholds and an interval-quality filter only when recall and complete-rally coverage do not fall; it never changes the classifier or reviewed timeline.
+Reviewed start/end ranges label the feature timeline without frame-by-frame shuttle annotation. Segmentation uses the reviewed gap distribution as a soft restart prior. `regression-gate` verifies truth hashes and holds out every match in turn. It rejects regressions in recall, complete coverage, premature endings, merged rallies or fragmented rallies. `fit-adapter` learns per-video thresholds, interval quality and formal-start timing only when every reviewed rally stays complete; it records and rechecks the truth hash and never changes the classifier or reviewed timeline.

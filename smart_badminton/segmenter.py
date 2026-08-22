@@ -9,6 +9,7 @@ import pandas as pd
 
 from .adaptation import SegmentationAdapter
 from .interval_quality import interval_quality_frame, interval_quality_probabilities
+from .local_boundaries import split_at_local_starts
 from .rally_evidence import RallyEvidence, build_rally_evidence
 
 
@@ -505,6 +506,15 @@ def segment_rallies(
         quality_probability = interval_quality_probabilities(quality, adapter.interval_quality)
         threshold = float(adapter.interval_quality.get("threshold", 0.0))
         merged = [interval for interval, score in zip(merged, quality_probability) if score >= threshold]
+    if adapter is not None and adapter.start_quality:
+        merged = split_at_local_starts(
+            merged,
+            data,
+            times,
+            probability,
+            fused,
+            adapter.start_quality,
+        )
     rows = []
     for number, interval in enumerate(merged, 1):
         rows.append(

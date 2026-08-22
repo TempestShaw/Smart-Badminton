@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 import json
 import tempfile
 from dataclasses import asdict, dataclass
@@ -10,11 +11,13 @@ import numpy as np
 import pandas as pd
 from sklearn.linear_model import LogisticRegression
 from sklearn.preprocessing import StandardScaler
-from sklearn.tree import DecisionTreeClassifier
+from sklearn.tree import DecisionTreeClassifier, DecisionTreeRegressor
 
 from .evaluate import evaluate_rallies
 from .interval_quality import INTERVAL_QUALITY_FEATURES, interval_quality_probabilities, load_interval_quality_frame
 from .io import load_rallies
+from .rally_evidence import build_rally_evidence
+from .start_quality import START_QUALITY_FEATURES, selected_start_times, start_candidate_frame
 
 
 @dataclass(frozen=True)
@@ -33,6 +36,7 @@ class SegmentationAdapter:
     orphan_neighbor_gap: float = 3.0
     split_handoff_before_serve: bool = False
     interval_quality: dict | None = None
+    start_quality: dict | None = None
 
     @classmethod
     def from_json(cls, path: Path) -> SegmentationAdapter:
@@ -43,7 +47,7 @@ class SegmentationAdapter:
         for name, field in fields.items():
             if name not in values:
                 continue
-            if name == "interval_quality":
+            if name in {"interval_quality", "start_quality"}:
                 parsed[name] = dict(values[name]) if values[name] else None
             else:
                 parsed[name] = bool(values[name]) if isinstance(field.default, bool) else float(values[name])
@@ -70,6 +74,9 @@ def _adapter_rank(report: dict) -> tuple:
         editing["incomplete_rallies"],
         editing["premature_cut_seconds"],
         editing["uncovered_truth_seconds"],
+        editing.get("merged_truth_rallies", 0) + editing.get("fragmented_truth_rallies", 0),
+        editing.get("rally_count_error", 0),
+        editing.get("merged_truth_rallies", 0),
         editing["editing_quality_loss"],
         -report["active_time_recall"],
         -report["active_time_precision"],
@@ -82,9 +89,11 @@ def fit_segmentation_adapter(
     truth_csv: Path,
     output_json: Path,
     shuttle_trajectory_csv: Path | None = None,
+    base_adapter: Path | None = None,
 ) -> dict:
     from .segmenter import segment_rallies
 
+    truth_hash_before = hashlib.sha256(truth_csv.read_bytes()).hexdigest()
     soft_gap = _soft_gap_from_truth(truth_csv)
     candidates: list[tuple[SegmentationAdapter, dict]] = []
     with tempfile.TemporaryDirectory(prefix="smart-badminton-adapter-") as temporary_directory:
@@ -101,6 +110,10 @@ def fit_segmentation_adapter(
                 adapter=adapter,
             )
             return evaluate_rallies(output, truth_csv)
+
+        if base_adapter is not None and base_adapter.exists():
+            seed = SegmentationAdapter.from_json(base_adapter)
+            candidates.append((seed, evaluate(seed, -1)))
 
         thresholds = product(
             (0.52, 0.56, 0.60),
@@ -163,7 +176,20 @@ def fit_segmentation_adapter(
         truth = load_rallies(truth_csv)
         labels = np.asarray(
             [
-                any(min(interval.end, end) - max(interval.start, start) > 1e-6 for start, end in truth)
+                (
+                    sum(
+                        max(0.0, min(interval.end, end) - max(interval.start, start))
+                        for start, end in truth
+                    )
+                    / max(1e-6, interval.end - interval.start)
+                    >= 0.35
+                    or any(
+                        max(0.0, min(interval.end, end) - max(interval.start, start))
+                        / max(1e-6, end - start)
+                        >= 0.98
+                        for start, end in truth
+                    )
+                )
                 for interval in fitted_intervals
             ],
             dtype=int,
@@ -217,8 +243,124 @@ def fit_segmentation_adapter(
                     best = SegmentationAdapter(**{**asdict(best), "interval_quality": candidate_model})
                     best_report = filtered_report
 
+        features = pd.read_csv(features_csv)
+        probabilities = pd.read_csv(probabilities_csv)
+        data = features.merge(
+            probabilities[["time_seconds", "rally_probability"]], on="time_seconds", how="inner"
+        )
+        evidence = build_rally_evidence(data, shuttle_trajectory_csv)
+        start_frame = start_candidate_frame(data, evidence)
+        truth_starts = np.asarray([start for start, _end in truth], dtype=float)
+        if len(start_frame) and len(truth_starts):
+            candidate_times = start_frame["time_seconds"].to_numpy(dtype=float)
+            distances = np.min(np.abs(candidate_times[:, None] - truth_starts[None, :]), axis=1)
+            labels = (distances <= 1.20).astype(int)
+            if len(set(labels)) == 2 and min(np.bincount(labels)) >= 2:
+                tree = DecisionTreeClassifier(
+                    max_depth=6,
+                    min_samples_leaf=1,
+                    class_weight="balanced",
+                    random_state=23,
+                ).fit(start_frame[list(START_QUALITY_FEATURES)], labels)
+                positive_class = int(np.flatnonzero(tree.classes_ == 1)[0])
+                node_values = tree.tree_.value[:, 0, :]
+                start_model = {
+                    "type": "decision_tree",
+                    "feature_names": list(START_QUALITY_FEATURES),
+                    "children_left": tree.tree_.children_left.tolist(),
+                    "children_right": tree.tree_.children_right.tolist(),
+                    "split_features": tree.tree_.feature.tolist(),
+                    "thresholds": tree.tree_.threshold.tolist(),
+                    "positive_probability": (
+                        node_values[:, positive_class] / np.maximum(node_values.sum(axis=1), 1e-9)
+                    ).tolist(),
+                    "threshold": 0.999999,
+                    "dedupe_seconds": 1.5,
+                    "terminal_tail_seconds": max(0.70, best.postroll),
+                    "lead_safety_seconds": 0.10,
+                }
+                lead_tree = DecisionTreeRegressor(
+                    max_depth=5,
+                    min_samples_leaf=1,
+                    random_state=29,
+                ).fit(
+                    start_frame.loc[labels == 1, list(START_QUALITY_FEATURES)],
+                    np.maximum(
+                        0.0,
+                        [
+                            candidate_times[index]
+                            - truth_starts[
+                                int(np.argmin(np.abs(truth_starts - candidate_times[index])))
+                            ]
+                            for index in np.flatnonzero(labels == 1)
+                        ],
+                    ),
+                )
+                start_model["lead_model"] = {
+                    "type": "decision_tree_regressor",
+                    "feature_names": list(START_QUALITY_FEATURES),
+                    "children_left": lead_tree.tree_.children_left.tolist(),
+                    "children_right": lead_tree.tree_.children_right.tolist(),
+                    "split_features": lead_tree.tree_.feature.tolist(),
+                    "thresholds": lead_tree.tree_.threshold.tolist(),
+                    "values": lead_tree.tree_.value[:, 0, 0].tolist(),
+                }
+                selected = selected_start_times(start_frame, start_model)
+                matched_offsets = []
+                for truth_start in truth_starts:
+                    nearby = [value for value in selected if abs(value - truth_start) <= 1.20]
+                    if nearby:
+                        matched_offsets.append(min(nearby, key=lambda value: abs(value - truth_start)) - truth_start)
+                if matched_offsets:
+                    quiet_gap_options = (
+                        (0.0, 0.0, 0.0),
+                        (0.18, 2.0, 0.6),
+                        (0.22, 2.5, 0.8),
+                        (0.26, 3.0, 1.0),
+                    )
+                    for quiet_ceiling, quiet_minimum, quiet_gap in product(
+                        (0.14, 0.20),
+                        (0.6, 1.0),
+                        quiet_gap_options,
+                    ):
+                        gap_ceiling, gap_window, gap_minimum = quiet_gap
+                        candidate_model = dict(start_model)
+                        candidate_model.update(
+                            {
+                                "lead_seconds": max(0.0, float(np.median(matched_offsets))),
+                                "quiet_probability_ceiling": quiet_ceiling,
+                                "quiet_min_seconds": quiet_minimum,
+                                "quiet_search_seconds": 8.0,
+                                "quiet_gap_probability_ceiling": gap_ceiling,
+                                "quiet_gap_window_seconds": gap_window,
+                                "quiet_gap_min_seconds": gap_minimum,
+                            }
+                        )
+                        candidate_adapter = SegmentationAdapter(
+                            **{**asdict(best), "start_quality": candidate_model}
+                        )
+                        candidate_report = evaluate(candidate_adapter, 1000 + len(candidates))
+                        candidates.append((candidate_adapter, candidate_report))
+                        if (
+                            candidate_report["active_time_recall"] + 1e-9
+                            >= best_report["active_time_recall"]
+                            and candidate_report[
+                                "truth_rallies_with_at_least_98_percent_coverage"
+                            ]
+                            >= best_report["truth_rallies_with_at_least_98_percent_coverage"]
+                            and candidate_report["editing_quality"]["premature_cut_seconds"]
+                            <= best_report["editing_quality"]["premature_cut_seconds"] + 1e-9
+                            and _adapter_rank(candidate_report) < _adapter_rank(best_report)
+                        ):
+                            best = candidate_adapter
+                            best_report = candidate_report
+
+    if hashlib.sha256(truth_csv.read_bytes()).hexdigest() != truth_hash_before:
+        raise RuntimeError(f"Truth file changed while fitting adapter: {truth_csv}")
+
     metadata = {
         "truth": str(truth_csv),
+        "truth_sha256": truth_hash_before,
         "evaluated_candidates": len(candidates) + len(buffer_candidates),
         "metrics": {
             "active_time_precision": best_report["active_time_precision"],

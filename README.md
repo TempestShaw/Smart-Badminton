@@ -175,7 +175,7 @@ smart-badminton detect-tracknet --video input.mp4 --config camera.json --trackne
 smart-badminton fuse-shuttle --yolo output/shuttle-raw.csv --tracknet output/tracknet-raw.csv --config camera.json --output output/hybrid-raw.csv
 smart-badminton track-shuttle --video input.mp4 --config camera.json --detections output/hybrid-raw.csv --contact-features output/features.csv --annotations output/user-shuttle-points.csv --output output/shuttle-track.csv --preview output/shuttle-preview.mp4
 smart-badminton segment --features output/features.csv --probabilities output/probabilities.csv --shuttle-trajectory output/shuttle-track.csv --output output/rallies.csv
-smart-badminton fit-adapter --features output/features.csv --probabilities output/probabilities.csv --truth reviewed.csv --shuttle-trajectory output/shuttle-track.csv --output segmentation-adapter.json
+smart-badminton fit-adapter --features output/features.csv --probabilities output/probabilities.csv --truth reviewed.csv --shuttle-trajectory output/shuttle-track.csv --base-adapter segmentation-adapter.json --output segmentation-adapter-next.json
 ```
 
 TrackNet uses an airspace crop and background mask to retain high clears while suppressing neighbouring courts. Inpainted points may bridge a short occlusion but cannot independently create landing or clip-boundary evidence.

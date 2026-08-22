@@ -88,6 +88,24 @@ def test_interval_quality_model_round_trips(tmp_path: Path) -> None:
     assert SegmentationAdapter.from_json(path).interval_quality == model
 
 
+def test_start_quality_model_round_trips(tmp_path: Path) -> None:
+    path = tmp_path / "adapter.json"
+    model = {
+        "type": "decision_tree",
+        "feature_names": ["rally_probability"],
+        "children_left": [-1],
+        "children_right": [-1],
+        "split_features": [-2],
+        "thresholds": [-2.0],
+        "positive_probability": [1.0],
+        "threshold": 0.9,
+    }
+
+    SegmentationAdapter(start_quality=model).write(path)
+
+    assert SegmentationAdapter.from_json(path).start_quality == model
+
+
 def test_decision_tree_interval_quality_model_is_json_runnable() -> None:
     model = {
         "type": "decision_tree",
