@@ -308,15 +308,12 @@ kbd { padding: 1px 4px; color: #dfe7e2; border: 1px solid #3b463f; border-bottom
 .legend-kept { background: #58782e; border: 1px solid #9bcc58; }.legend-model { background: #a8db64; }.legend-flight { background: var(--cyan); }.legend-ready { background: linear-gradient(90deg, #79df92 50%, #64bff2 50%); }
 .timeline-hint { margin-left: auto; }
 
-.clip-bin { grid-column: 1 / -1; padding: 12px 14px 14px; }
-.clip-bin-heading { display: flex; justify-content: space-between; margin-bottom: 9px; color: var(--studio-muted); font-size: 9px; }
-.clip-list { display: flex; gap: 6px; overflow-x: auto; padding-bottom: 4px; content-visibility: auto; }
-.clip-card { flex: 0 0 145px; padding: 9px; text-align: left; border: 1px solid var(--line); border-radius: 7px; background: #0c110e; cursor: pointer; }
+.clip-bin { grid-column: 1 / -1; padding: 8px 10px; }
+.clip-list { display: flex; gap: 4px; overflow-x: auto; padding-bottom: 3px; content-visibility: auto; }
+.clip-card { flex: 0 0 40px; height: 26px; padding: 0 5px; color: #d9e5dd; border: 1px solid var(--line); border-radius: 6px; background: #0c110e; font: 700 9px ui-monospace, monospace; cursor: pointer; }
 .clip-card:hover, .clip-card.selected { border-color: #71815c; background: #172016; }
 .clip-card.selected { box-shadow: inset 3px 0 var(--brand); }
-.clip-card strong, .clip-card span { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.clip-card strong { color: #d9e5dd; font: 700 9px ui-monospace, monospace; }
-.clip-card span { margin-top: 5px; color: var(--studio-muted); font: 8px/1.5 ui-monospace, monospace; }
+.clip-card.review:not(.selected) { color: #ffd19a; border-color: #75562f; }
 
 .loading-overlay { position: fixed; z-index: 90; inset: 0; display: grid; place-content: center; justify-items: center; gap: 12px; background: #060806d9; backdrop-filter: blur(5px); }
 .loading-overlay strong { font-size: 11px; }
