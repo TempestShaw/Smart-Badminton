@@ -121,3 +121,29 @@ def test_manual_scores_disable_biased_next_server_inference_for_this_video(tmp_p
 
     assert summary["next_serve_calibration"] == {"samples": 3, "accuracy": 0.0, "enabled": False}
     assert summary["rallies"][3]["winner"] == "unknown"
+
+
+def test_low_confidence_serve_is_excluded_from_calibration(tmp_path: Path) -> None:
+    rallies = tmp_path / "rallies.csv"
+    rallies.write_text(
+        "rally,start_seconds,end_seconds\n1,1,2\n2,3,4\n3,5,6\n4,7,8\n",
+        encoding="utf-8",
+    )
+    corrections = tmp_path / "corrections.csv"
+    corrections.write_text(
+        "rally,winner,server_override,note\n1,far,unknown,human\n2,far,unknown,human\n3,far,unknown,human\n",
+        encoding="utf-8",
+    )
+
+    summary = analyze_score(
+        rallies,
+        tmp_path / "score.csv",
+        corrections_csv=corrections,
+        serve_observations=[
+            {"rally": 2, "server": "near", "confidence": 0.60},
+            {"rally": 3, "server": "far", "confidence": 0.90},
+            {"rally": 4, "server": "far", "confidence": 0.90},
+        ],
+    )
+
+    assert summary["next_serve_calibration"] == {"samples": 2, "accuracy": 1.0, "enabled": True}

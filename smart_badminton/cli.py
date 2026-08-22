@@ -27,6 +27,7 @@ from .shuttle_training import audit_shuttle_dataset, train_shuttle_model
 from .tracknet import TrackNetRuntimeConfig, detect_tracknet
 from .tracknet_training import export_tracknet_labels, train_tracknet
 from .trajectory import analyze_shuttle_trajectory, render_shuttle_trajectory
+from .trajectory_evaluate import evaluate_shuttle_annotations
 
 
 def path(value: str) -> Path:
@@ -135,6 +136,12 @@ def main() -> None:
     trajectory.add_argument("--ffmpeg", type=path)
     trajectory.add_argument("--encoder", default="auto")
     trajectory.add_argument("--style", choices=("debug", "trail"), default="debug")
+    trajectory_evaluate = commands.add_parser("evaluate-trajectory")
+    trajectory_evaluate.add_argument("--detections", type=path, required=True)
+    trajectory_evaluate.add_argument("--trajectory", type=path, required=True)
+    trajectory_evaluate.add_argument("--annotations", type=path, required=True)
+    trajectory_evaluate.add_argument("--config", type=path)
+    trajectory_evaluate.add_argument("--output", type=path)
     train = commands.add_parser("train")
     train.add_argument("--features", type=path, required=True)
     train.add_argument("--rallies", type=path, required=True)
@@ -409,6 +416,19 @@ def main() -> None:
             )
             result["preview"] = str(args.preview)
         print(json.dumps(result, indent=2))
+    elif args.command == "evaluate-trajectory":
+        print(
+            json.dumps(
+                evaluate_shuttle_annotations(
+                    args.detections,
+                    args.trajectory,
+                    args.annotations,
+                    args.output,
+                    args.config,
+                ),
+                indent=2,
+            )
+        )
     elif args.command == "train":
         print(json.dumps(train_model(args.features, args.rallies, args.model, args.report, args.family), indent=2))
     elif args.command == "train-multi":

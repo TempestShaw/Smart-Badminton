@@ -539,7 +539,7 @@ def _select_primary_track_indices(
     for hint in hints:
         hints_by_bucket[math.floor(float(hint["time"]) / hint_bucket_size)].append(hint)
 
-    def point_contact_support(index: int) -> float:
+    def point_hint_support(index: int, kinds: set[str]) -> float:
         if not hints:
             return 0.0
         row = rows[index]
@@ -554,6 +554,8 @@ def _select_primary_track_indices(
         matches: list[float] = []
         for hint_bucket in (bucket - 1, bucket, bucket + 1):
             for hint in hints_by_bucket.get(hint_bucket, []):
+                if str(hint.get("kind") or "contact") not in kinds:
+                    continue
                 delta = abs(time_seconds - float(hint["time"]))
                 if delta > 0.22:
                     continue
@@ -568,7 +570,8 @@ def _select_primary_track_indices(
 
     contexts = {index: _geometry_context_score(rows[index], geometry) for index in candidates}
     axis_scores = {index: _axis_proximity_score(rows[index], geometry) for index in candidates}
-    contacts = {index: point_contact_support(index) for index in candidates}
+    contacts = {index: point_hint_support(index, {"contact"}) for index in candidates}
+    manual_anchors = {index: point_hint_support(index, {"manual_anchor"}) for index in candidates}
     ownership_hints = [hint for hint in hints if str(hint.get("kind") or "contact") == "contact"]
     track_contacts = {
         track_id: _track_contact_support(rows, indices, ownership_hints)
@@ -603,6 +606,7 @@ def _select_primary_track_indices(
             + contexts[index] * 1.35
             + axis_scores[index] * 0.22
             + contacts[index] * 4.20
+            + manual_anchors[index] * 5.50
             + track_continuity.get(track_id, 0.0) * 0.12
             + ownership_bonus
             + manual_bonus
@@ -662,6 +666,9 @@ def _select_primary_track_indices(
         if str(rows[index].get("detection_status") or "") == "manual":
             ownership_evidence = "manual"
             ownership_confidence = 1.0
+        elif manual_anchors[index] >= 0.04:
+            ownership_evidence = "manual_anchor"
+            ownership_confidence = min(0.99, 0.88 + manual_anchors[index] * 0.08)
         elif contacts[index] >= 0.04 or track_contacts[track_id] >= 0.08:
             ownership_evidence = "player_contact"
             ownership_confidence = min(0.98, 0.78 + max(contacts[index], track_contacts[track_id]) * 0.30)
@@ -688,6 +695,32 @@ def _select_primary_track_indices(
         rows[index]["ownership_confidence"] = ownership_confidence
         rows[index]["ownership_evidence"] = ownership_evidence
     return {index for index in accepted if rows[index]["ownership_evidence"] != "unknown"}
+
+
+def _drop_weak_partial_tracks(
+    rows: list[dict[str, float | int | str]],
+    proposed: dict[int, int],
+    accepted_indices: set[int],
+) -> set[int]:
+    grouped: dict[int, list[int]] = defaultdict(list)
+    for index, track_id in proposed.items():
+        grouped[track_id].append(index)
+    kept = set(accepted_indices)
+    for indices in grouped.values():
+        accepted = sorted(
+            (index for index in indices if index in accepted_indices),
+            key=lambda index: float(rows[index]["time_seconds"]),
+        )
+        if not 0 < len(accepted) <= 2 or len(indices) < 8:
+            continue
+        if len(accepted) / len(indices) > 0.20:
+            continue
+        if any(str(rows[index].get("ownership_evidence")) != "court_continuity" for index in accepted):
+            continue
+        span = float(rows[accepted[-1]]["time_seconds"]) - float(rows[accepted[0]]["time_seconds"])
+        if span <= 0.12:
+            kept.difference_update(accepted)
+    return kept
 
 
 def _stitch_primary_flights(
@@ -872,6 +905,18 @@ def analyze_shuttle_trajectory(
     annotations = load_shuttle_annotations(annotations_csv)
     rows, user_rejected_points = _apply_user_rejections(rows, annotations)
     contact_hints = _read_contact_hints(contact_features_csv)
+    contact_hints.extend(
+        {
+            "time": float(annotation["time_seconds"]),
+            "x": float(annotation["x_normalized"]),
+            "y": float(annotation["y_normalized"]),
+            "support": 1.8,
+            "radius": 0.055,
+            "kind": "manual_anchor",
+        }
+        for annotation in annotations
+        if annotation.get("action") == "add"
+    )
     labels, stationary_labels = _stationary_labels(rows)
     dynamic_indices = [
         index
@@ -881,6 +926,7 @@ def analyze_shuttle_trajectory(
     proposed = _link_dynamic_rows(rows, dynamic_indices)
     geometry = CourtGeometry.from_json(config) if config is not None and config.exists() else None
     accepted_indices = _select_primary_track_indices(rows, proposed, contact_hints, geometry)
+    accepted_indices = _drop_weak_partial_tracks(rows, proposed, accepted_indices)
     accepted = {index: proposed[index] for index in accepted_indices}
     primary_track_ids = set(accepted.values())
     flight_ids = _stitch_primary_flights(rows, accepted)

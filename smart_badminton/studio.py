@@ -48,6 +48,7 @@ from .scoring import (
     validate_score_corrections,
 )
 from .segmenter import segment_rallies
+from .serve_inference import infer_serve_observations
 from .shuttle import detect_shuttle
 from .shuttle_annotations import (
     load_shuttle_annotations,
@@ -758,112 +759,24 @@ def _analytics_payload(state: StudioState) -> dict[str, Any]:
 def _serve_observations(state: StudioState, evidence: dict[str, Any]) -> list[dict[str, Any]]:
     if not evidence.get("available"):
         return []
-    serves = evidence.get("serves") or []
-    observations = []
     rallies = load_rallies(state.rallies)
-    for rally, (start, end) in enumerate(rallies, 1):
-        candidates = [
-            row
-            for row in serves
-            if start - 0.25 <= float(row.get("time", -1.0)) <= min(end, start + 6.0)
-            and row.get("server") in {"near", "far"}
-        ]
-        if not candidates:
-            continue
-        strongest = max(candidates, key=lambda row: (float(row.get("confidence", 0.0)), -float(row["time"])))
-        observations.append(
-            {
-                "rally": rally,
-                "time": round(float(strongest["time"]), 3),
-                "server": str(strongest["server"]),
-                "confidence": round(float(strongest.get("confidence", 0.0)), 3),
-                "source": "formal-serve",
-            }
-        )
-    observed_rallies = {int(row["rally"]) for row in observations}
     analysis_root = _analysis_directory(state.library or state.video.parent, state.video)
     features_path = analysis_root / "smart-features.csv"
-    probabilities_path = analysis_root / "rally-probabilities.csv"
     trajectory_path = analysis_root / "shuttle-track.csv"
-    if not features_path.exists() or not probabilities_path.exists() or not trajectory_path.exists():
-        return observations
+    if not features_path.exists() or not trajectory_path.exists():
+        return []
     try:
         features = pd.read_csv(features_path)
-        probabilities = pd.read_csv(probabilities_path)
-        data = features.merge(
-            probabilities[["time_seconds", "rally_probability"]],
-            on="time_seconds",
-            how="inner",
+        trajectory = pd.read_csv(trajectory_path)
+        return infer_serve_observations(
+            rallies,
+            features,
+            trajectory,
+            evidence.get("serves") or [],
+            evidence.get("contacts") or [],
         )
-        if data.empty:
-            return observations
-        def numeric_column(name: str) -> Any:
-            series = data[name] if name in data else pd.Series(0.0, index=data.index)
-            return pd.to_numeric(series, errors="coerce").fillna(0.0).to_numpy(dtype=float)
-
-        times = numeric_column("time_seconds")
-        near_swing = numeric_column("near_swing_score")
-        far_swing = numeric_column("far_swing_score")
-        audio = numeric_column("audio_hit_score")
-        rally_evidence = build_rally_evidence(data, trajectory_path)
-        strict_contacts = evidence.get("contacts") or []
-        for rally, (start, end) in enumerate(rallies, 1):
-            if rally in observed_rallies:
-                continue
-            search_end = min(end, start + 6.0)
-            contact = next(
-                (
-                    row
-                    for row in strict_contacts
-                    if start - 0.15 <= float(row.get("time", -1.0)) <= search_end
-                    and row.get("player") in {"near", "far"}
-                ),
-                None,
-            )
-            if contact is not None:
-                observations.append(
-                    {
-                        "rally": rally,
-                        "time": round(float(contact["time"]), 3),
-                        "server": str(contact["player"]),
-                        "confidence": round(0.72 + min(0.08, float(contact.get("confidence", 0.0)) * 0.12), 3),
-                        "source": "timeline-first-contact",
-                    }
-                )
-                continue
-            flight_indices = [
-                index
-                for index, active in enumerate(rally_evidence.trajectory_flight_start)
-                if bool(active) and start - 0.15 <= times[index] <= search_end
-            ]
-            for index in flight_indices:
-                support = (times >= times[index] - 0.35) & (times <= times[index] + 0.35)
-                near_strength = float(near_swing[support].max())
-                far_strength = float(far_swing[support].max())
-                dominant = max(near_strength, far_strength)
-                other = min(near_strength, far_strength)
-                if dominant < 0.14 or dominant < other * 1.12:
-                    continue
-                server = "near" if near_strength > far_strength else "far"
-                receiver_ready = rally_evidence.far_ready if server == "near" else rally_evidence.near_ready
-                ready_window = (times >= times[index] - 2.0) & (times <= times[index])
-                recent_ready = any(bool(value) for value, active in zip(receiver_ready, ready_window) if active)
-                audio_supported = float(audio[support].max()) >= 0.22
-                confidence = 0.72 + (0.07 if recent_ready else 0.0) + (0.05 if audio_supported else 0.0)
-                confidence += 0.05 * min(1.0, max(0.0, (dominant - 0.14) / 0.36))
-                observations.append(
-                    {
-                        "rally": rally,
-                        "time": round(float(times[index]), 3),
-                        "server": server,
-                        "confidence": round(min(0.91, confidence), 3),
-                        "source": "timeline-first-flight",
-                    }
-                )
-                break
-        return sorted(observations, key=lambda row: int(row["rally"]))
     except (OSError, ValueError, KeyError):
-        return observations
+        return []
 
 
 def _score_paths(state: StudioState) -> tuple[Path, Path, Path, Path]:

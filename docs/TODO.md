@@ -31,6 +31,7 @@ Status: `[x]` complete, `[~]` implemented but awaiting broader video validation,
 - [~] Adapt near/far readiness thresholds to the current video's observed stance and foot-speed distributions.
 - [x] Save user corrections as phase examples without retraining the frozen rally-state model.
 - [x] Fit per-video thresholds and soft gap behavior in a metadata adapter without changing the global model.
+- [x] Filter handoff intervals with per-video quality features while preserving recall and complete-rally coverage.
 
 ## P1 - One continuous shuttle flight
 

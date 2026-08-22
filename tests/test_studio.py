@@ -307,7 +307,7 @@ def test_studio_calculates_score_on_demand_and_invalidates_it_after_timeline_edi
     assert saved.json()["score"]["stale"] is True
 
 
-def test_score_uses_first_supported_flight_when_formal_serve_is_missing(tmp_path: Path, monkeypatch) -> None:
+def test_pose_only_flight_cannot_decide_server(tmp_path: Path, monkeypatch) -> None:
     video = tmp_path / "source.mp4"
     video.write_bytes(b"placeholder")
     timeline = tmp_path / "rallies.csv"
@@ -342,15 +342,7 @@ def test_score_uses_first_supported_flight_when_formal_serve_is_missing(tmp_path
 
     observations = _serve_observations(state, {"available": True, "serves": [], "contacts": []})
 
-    assert observations == [
-        {
-            "rally": 2,
-            "time": 3.2,
-            "server": "far",
-            "confidence": 0.89,
-            "source": "timeline-first-flight",
-        }
-    ]
+    assert observations == []
 
 
 def test_studio_evidence_payload_exports_compact_signal_spans(tmp_path: Path) -> None:

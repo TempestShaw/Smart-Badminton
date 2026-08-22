@@ -31,7 +31,11 @@ NEXT_SERVE_CONFIDENCE_THRESHOLD = 0.72
 def _next_serve_calibration(
     corrections: list[dict[str, Any]], serve_observations: list[dict[str, Any]]
 ) -> dict[str, Any]:
-    serve_map = {int(row["rally"]): str(row.get("server", "unknown")) for row in serve_observations}
+    serve_map = {
+        int(row["rally"]): str(row.get("server", "unknown"))
+        for row in serve_observations
+        if float(row.get("confidence", 0.0)) >= NEXT_SERVE_CONFIDENCE_THRESHOLD
+    }
     checks = []
     for correction in corrections:
         winner = str(correction.get("winner", "auto"))

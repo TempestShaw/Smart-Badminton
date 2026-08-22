@@ -8,6 +8,7 @@ import numpy as np
 import pandas as pd
 
 from .adaptation import SegmentationAdapter
+from .interval_quality import interval_quality_frame, interval_quality_probabilities
 from .rally_evidence import RallyEvidence, build_rally_evidence
 
 
@@ -301,6 +302,7 @@ def segment_rallies(
     intervals: list[Interval] = []
     active = False
     start = 0.0
+    active_preroll = preroll
     last_keep = 0.0
     landing_locked = False
     landing_time = -math.inf
@@ -332,7 +334,10 @@ def segment_rallies(
                 )
         if not active and may_start:
             active = True
-            start = max(float(times[0]), time_seconds - preroll)
+            active_preroll = preroll
+            if adapter is not None and adapter.uncertain_preroll > 0 and not formal_start:
+                active_preroll = max(preroll, adapter.uncertain_preroll)
+            start = max(float(times[0]), time_seconds - active_preroll)
             last_keep = time_seconds
             landing_locked = False
             landing_time = -math.inf
@@ -380,7 +385,7 @@ def segment_rallies(
                         confidence,
                         end_reason,
                         confidence < 0.62,
-                        start + preroll,
+                        start + active_preroll,
                         last_keep,
                         start_locked=trajectory_started,
                         end_locked=landing_locked,
@@ -397,7 +402,7 @@ def segment_rallies(
                 float(np.mean(collected_probabilities)),
                 "end of video",
                 True,
-                start + preroll,
+                start + active_preroll,
                 last_keep,
                 start_locked=trajectory_started,
             )
@@ -489,6 +494,17 @@ def segment_rallies(
         interval.reason += "; overlap deduplicated"
         deduplicated.append(interval)
     merged = deduplicated
+    if adapter is not None and adapter.interval_quality:
+        quality = interval_quality_frame(
+            merged,
+            times,
+            probability,
+            audio.to_numpy(dtype=float),
+            fused,
+        )
+        quality_probability = interval_quality_probabilities(quality, adapter.interval_quality)
+        threshold = float(adapter.interval_quality.get("threshold", 0.0))
+        merged = [interval for interval, score in zip(merged, quality_probability) if score >= threshold]
     rows = []
     for number, interval in enumerate(merged, 1):
         rows.append(

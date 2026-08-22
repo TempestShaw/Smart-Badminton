@@ -7,6 +7,7 @@ import numpy as np
 
 from smart_badminton.geometry import CourtGeometry
 from smart_badminton.trajectory import (
+    _drop_weak_partial_tracks,
     _link_dynamic_rows,
     _manual_annotation_rows,
     _predict_track_point,
@@ -454,6 +455,61 @@ def test_manual_annotations_form_local_flights_and_attach_to_nearby_model_flight
     assert [row["flight_id"] for row in rows] == ["flight-7", "flight-7", "manual-2"]
     assert [row["track_length"] for row in rows] == [2, 2, 1]
     assert all(row["status"] == "manual" for row in rows)
+
+
+def test_manual_anchor_beats_a_competing_false_contact_track() -> None:
+    rows = []
+    proposed = {}
+    for frame, time_seconds in enumerate((0.0, 0.1, 0.2)):
+        for track_id, x, confidence in ((1, 200.0, 0.45), (2, 500.0, 0.92)):
+            index = len(rows)
+            rows.append(
+                {
+                    "time_seconds": time_seconds,
+                    "frame": frame,
+                    "source_width": 640,
+                    "source_height": 360,
+                    "confidence": confidence,
+                    "center_x": x + frame * 12.0,
+                    "center_y": 180.0 - frame * 4.0,
+                    "width": 8.0,
+                    "height": 8.0,
+                    "detection_status": "detected",
+                    "evidence_weight": 1.0,
+                }
+            )
+            proposed[index] = track_id
+    hints = [
+        {"time": 0.1, "x": 212 / 640, "y": 176 / 360, "support": 1.0, "radius": 0.04, "kind": "manual_anchor"},
+        {"time": 0.1, "x": 512 / 640, "y": 176 / 360, "support": 1.0, "radius": 0.04, "kind": "contact"},
+    ]
+
+    accepted = _select_primary_track_indices(rows, proposed, hints)
+
+    assert 2 in accepted
+    assert 3 not in accepted
+
+
+def test_weak_two_point_prefix_of_rejected_neighbor_track_is_dropped() -> None:
+    rows = [
+        {
+            "time_seconds": index * 0.02,
+            "ownership_evidence": "court_continuity" if index < 2 else "unknown",
+        }
+        for index in range(12)
+    ]
+    proposed = {index: 1 for index in range(12)}
+
+    assert _drop_weak_partial_tracks(rows, proposed, {0, 1}) == set()
+
+
+def test_short_complete_track_is_not_dropped() -> None:
+    rows = [
+        {"time_seconds": 0.0, "ownership_evidence": "court_continuity"},
+        {"time_seconds": 0.05, "ownership_evidence": "court_continuity"},
+    ]
+
+    assert _drop_weak_partial_tracks(rows, {0: 1, 1: 1}, {0, 1}) == {0, 1}
 
 
 def test_inpainted_candidates_cannot_create_a_track() -> None:
