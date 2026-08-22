@@ -1758,10 +1758,12 @@ def create_studio_app(state: StudioState):
         except (KeyError, TypeError, ValueError) as error:
             raise HTTPException(status_code=400, detail=str(error)) from error
 
-    def render_worker() -> None:
+    def render_worker(include_trajectory: bool) -> None:
         try:
             with state.project_lock:
                 video_path, timeline_path, output_path = state.video, state.rallies, state.output
+                library = state.library or state.video.parent
+                trajectory_path = _analysis_directory(library, state.video) / "shuttle-track.csv"
             used_encoder = render_rallies(
                 video_path,
                 timeline_path,
@@ -1769,17 +1771,27 @@ def create_studio_app(state: StudioState):
                 state.ffmpeg,
                 state.encoder,
                 state.quality,
+                trajectory_csv=trajectory_path if include_trajectory else None,
             )
             runtime = _runtime_payload(state)["ffmpeg"]
             if runtime.get("selected_encoder") != used_encoder:
                 runtime["warning"] = f"{runtime.get('selected_encoder')} could not complete the render; using {used_encoder}"
                 runtime["selected_encoder"] = used_encoder
-            state.render_status = {"state": "complete", "output": str(output_path), "encoder": used_encoder}
+            state.render_status = {
+                "state": "complete",
+                "output": str(output_path),
+                "encoder": used_encoder,
+                "include_trajectory": include_trajectory,
+            }
         except Exception as error:  # noqa: BLE001 - every renderer failure must reach the local UI
             state.render_status = {"state": "error", "message": str(error)}
 
     @app.post("/api/render")
-    def start_render():
+    def start_render(payload: dict[str, Any] | None = None):
+        payload = payload or {}
+        include_trajectory = payload.get("include_trajectory", False)
+        if not isinstance(include_trajectory, bool):
+            raise HTTPException(status_code=400, detail="include_trajectory must be a boolean")
         if state.analysis_status.get("state") == "running":
             raise HTTPException(status_code=409, detail="Wait for automatic analysis to finish before rendering")
         if not _timeline_has_segments(state.rallies):
@@ -1788,11 +1800,20 @@ def create_studio_app(state: StudioState):
         if not runtime["available"]:
             error = runtime["reason"] or "FFmpeg H.264 encoder is unavailable"
             raise HTTPException(status_code=503, detail=str(error))
+        if include_trajectory:
+            library = state.library or state.video.parent
+            trajectory_path = _analysis_directory(library, state.video) / "shuttle-track.csv"
+            if not trajectory_path.exists():
+                raise HTTPException(status_code=409, detail="请先分析当前视频球路")
         with state.render_lock:
             if state.render_status.get("state") == "running":
                 return state.render_status
-            state.render_status = {"state": "running", "output": str(state.output)}
-            threading.Thread(target=render_worker, daemon=True).start()
+            state.render_status = {
+                "state": "running",
+                "output": str(state.output),
+                "include_trajectory": include_trajectory,
+            }
+            threading.Thread(target=render_worker, args=(include_trajectory,), daemon=True).start()
         return state.render_status
 
     @app.get("/api/render")

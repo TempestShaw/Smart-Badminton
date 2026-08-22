@@ -1,17 +1,21 @@
 "use client";
 
 import { Clapperboard, Redo2, Save, Undo2 } from "lucide-react";
+import { useState } from "react";
 
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from "@/components/ui/alert-dialog";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { Checkbox } from "@/components/ui/checkbox";
 import { BackgroundJobCenter } from "@/components/background-job-center";
 import { StudioTutorial } from "@/components/studio-tutorial";
 import type { StudioController } from "@/hooks/use-studio-controller";
 
 export function AppHeader({ studio }: { studio: StudioController }) {
+  const [includeTrajectory, setIncludeTrajectory] = useState(false);
   const outputExists = studio.project?.output.file_exists;
   const ffmpegReady = studio.project?.runtime.ffmpeg.available === true;
+  const trajectoryReady = studio.project?.shuttle_analysis.generated === true;
   return (
     <header className="topbar">
       <div className="brand" aria-label="Smart Badminton Studio">
@@ -50,9 +54,17 @@ export function AppHeader({ studio }: { studio: StudioController }) {
                 <br />目标：{studio.project?.output.path}
               </AlertDialogDescription>
             </AlertDialogHeader>
+            <label className="flex items-center gap-3 rounded-md border p-3 text-sm">
+              <Checkbox
+                checked={trajectoryReady && includeTrajectory}
+                disabled={!trajectoryReady}
+                onCheckedChange={(checked) => setIncludeTrajectory(checked === true)}
+              />
+              <span>{trajectoryReady ? "包含羽球轨迹" : "需先分析球路"}</span>
+            </label>
             <AlertDialogFooter>
               <AlertDialogCancel>取消</AlertDialogCancel>
-              <AlertDialogAction onClick={() => void studio.startRender()}>{outputExists ? "确认覆盖并输出" : "开始输出"}</AlertDialogAction>
+              <AlertDialogAction onClick={() => void studio.startRender(trajectoryReady && includeTrajectory)}>{outputExists ? "确认覆盖并输出" : "开始输出"}</AlertDialogAction>
             </AlertDialogFooter>
           </AlertDialogContent>
         </AlertDialog>

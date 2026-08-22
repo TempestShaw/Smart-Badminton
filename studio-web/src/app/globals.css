@@ -56,6 +56,7 @@ body { margin: 0; min-width: 740px; min-height: 100vh; color: var(--text); backg
 button, input, select { font: inherit; }
 button:not([data-slot="button"]), input, select { color: inherit; }
 button:not([data-slot="button"]) { border: 0; }
+button[data-variant="default"] { color: var(--primary-foreground); }
 
 .button, .icon-button, .play-button, .nudge-grid button {
   border: 1px solid var(--line); background: #171d1a; border-radius: 7px; cursor: pointer; transition: border-color .16s ease, background .16s ease, opacity .16s ease;

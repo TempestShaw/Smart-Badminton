@@ -234,6 +234,71 @@ def test_studio_reports_missing_h264_encoder_before_video_jobs(tmp_path: Path, m
     assert client.post("/api/render").status_code == 503
 
 
+def test_studio_render_can_include_trajectory(tmp_path: Path, monkeypatch) -> None:
+    video = tmp_path / "source.mp4"
+    video.write_bytes(b"placeholder")
+    timeline = tmp_path / "rallies.csv"
+    timeline.write_text("rally,start_seconds,end_seconds\n1,1,2\n", encoding="utf-8")
+    analysis = tmp_path / "Analysis" / "Auto" / video.stem
+    analysis.mkdir(parents=True)
+    trajectory = analysis / "shuttle-track.csv"
+    trajectory.write_text("trajectory", encoding="utf-8")
+    captured: dict[str, object] = {}
+
+    monkeypatch.setattr(
+        studio,
+        "_runtime_payload",
+        lambda _state: {"ffmpeg": {"available": True, "selected_encoder": "libx264", "reason": None}},
+    )
+
+    def fake_render(*args, **kwargs):
+        captured.update(kwargs)
+        return "libx264"
+
+    monkeypatch.setattr(studio, "render_rallies", fake_render)
+    state = StudioState(
+        video=video,
+        rallies=timeline,
+        output=tmp_path / "edited.mp4",
+        library=tmp_path,
+    )
+    client = TestClient(studio.create_studio_app(state))
+
+    response = client.post("/api/render", json={"include_trajectory": True})
+    assert response.status_code == 200
+    for _ in range(100):
+        if client.get("/api/render").json()["state"] != "running":
+            break
+        time.sleep(0.01)
+
+    status = client.get("/api/render").json()
+    assert status["state"] == "complete"
+    assert status["include_trajectory"] is True
+    assert captured["trajectory_csv"] == trajectory
+
+
+def test_studio_rejects_trajectory_render_before_analysis(tmp_path: Path, monkeypatch) -> None:
+    video = tmp_path / "source.mp4"
+    video.write_bytes(b"placeholder")
+    timeline = tmp_path / "rallies.csv"
+    timeline.write_text("rally,start_seconds,end_seconds\n1,1,2\n", encoding="utf-8")
+    monkeypatch.setattr(
+        studio,
+        "_runtime_payload",
+        lambda _state: {"ffmpeg": {"available": True, "selected_encoder": "libx264", "reason": None}},
+    )
+    client = TestClient(
+        studio.create_studio_app(
+            StudioState(video=video, rallies=timeline, output=tmp_path / "edited.mp4", library=tmp_path)
+        )
+    )
+
+    response = client.post("/api/render", json={"include_trajectory": True})
+
+    assert response.status_code == 409
+    assert response.json()["detail"] == "请先分析当前视频球路"
+
+
 def test_studio_score_correction_does_not_mutate_timeline(tmp_path: Path, monkeypatch) -> None:
     video = tmp_path / "source.mp4"
     video.write_bytes(b"placeholder")

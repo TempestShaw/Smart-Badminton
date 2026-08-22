@@ -223,6 +223,7 @@ export interface RenderStatus {
   state: "idle" | "running" | "complete" | "error";
   output?: string;
   message?: string;
+  include_trajectory?: boolean;
 }
 
 export interface AnalysisStatus {

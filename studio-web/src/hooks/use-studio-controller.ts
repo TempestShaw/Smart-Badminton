@@ -492,10 +492,13 @@ export function useStudioController() {
     };
   }, [analysisStatus.state, notify, refreshLibrary, refreshProjectMetadata, reloadProject]);
 
-  const startRender = useCallback(async () => {
+  const startRender = useCallback(async (includeTrajectory = false) => {
     if (dirty && !(await saveTimeline())) return;
     try {
-      const payload = await apiRequest<RenderStatus>("/api/render", { method: "POST" });
+      const payload = await apiRequest<RenderStatus>("/api/render", {
+        method: "POST",
+        body: JSON.stringify({ include_trajectory: includeTrajectory }),
+      });
       setRenderStatus(payload);
       notify("开始输出成片");
     } catch (error) {
