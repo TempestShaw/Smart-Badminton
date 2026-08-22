@@ -185,15 +185,8 @@ button[data-variant="default"] { color: var(--primary-foreground); }
 .viewer-overlay-controls { position: absolute; z-index: 24; top: 10px; left: 50%; display: flex; gap: 6px; transform: translateX(-50%); }
 .viewer-overlay-controls [data-slot="button"] { min-height: 29px; border-color: #526059; background: #111713e8; backdrop-filter: blur(8px); font-size: 9px; }
 .viewer-overlay-controls [data-slot="button"][data-variant="default"] { color: #111; border-color: var(--brand); background: var(--brand); }
-.viewer-analysis-status { position: absolute; z-index: 23; right: 11px; bottom: 11px; display: flex; gap: 5px; pointer-events: none; }
-.viewer-analysis-status span { padding: 5px 7px; color: #bff6ff; border: 1px solid #68e4ff66; border-radius: 5px; background: #061014d9; font: 700 8px/1 ui-monospace, monospace; letter-spacing: .05em; }
-.tool-mode-badge, .viewer-badge, .viewer-time { position: absolute; z-index: 22; top: 11px; padding: 5px 7px; border: 1px solid #ffffff22; border-radius: 5px; background: #050807c9; backdrop-filter: blur(8px); font: 700 9px/1 ui-monospace, monospace; letter-spacing: .1em; }
-.tool-mode-badge { left: 11px; color: #160807; border: 0; background: var(--red); }
+.tool-mode-badge { position: absolute; z-index: 22; top: 11px; left: 11px; padding: 5px 7px; border-radius: 5px; color: #160807; background: var(--red); font: 700 9px/1 ui-monospace, monospace; letter-spacing: .1em; }
 .tool-mode-badge.shuttle { color: #190d1b; background: #ec79ff; }
-.viewer-badge { left: 11px; color: var(--brand); }
-.tool-mode-badge + .viewer-badge { top: 41px; }
-.viewer-badge.cut { color: #111; border-color: var(--brand); background: var(--brand); }
-.viewer-time { right: 11px; color: #fff; font-size: 11px; letter-spacing: 0; }
 .cut-preview-status { position: absolute; z-index: 12; left: 11px; bottom: 11px; display: flex; align-items: center; gap: 8px; padding: 7px 9px; border: 1px solid #c9ff3866; border-radius: 6px; background: #080c09e8; font: 600 9px/1 ui-monospace, monospace; }
 .cut-preview-status span { color: var(--brand); }
 .cut-preview-status em { padding-left: 8px; color: #aebbb3; border-left: 1px solid #ffffff22; font-style: normal; }

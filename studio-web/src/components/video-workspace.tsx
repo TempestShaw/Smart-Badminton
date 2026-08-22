@@ -270,16 +270,8 @@ export function VideoWorkspace({
           />
         ) : null}
         {toolMode !== "none" ? <div className={`tool-mode-badge ${toolMode}`}>{toolMode === "calibration" ? "COURT CALIBRATION" : "SHUTTLE LABEL"}</div> : null}
-        <div className={cutPreview ? "viewer-badge cut" : "viewer-badge"}>{cutPreview ? "CUT PREVIEW" : "SOURCE"}</div>
-        <div className="viewer-time">{formatTime(currentTime)}</div>
         {cutPreview ? (
           <div className="cut-preview-status"><span>成片预览</span><strong>{formatTime(activeOutputTime)} / {formatTime(outputDuration(studio.segments))}</strong><em>R{String(cutIndex + 1).padStart(2, "0")}</em></div>
-        ) : null}
-        {toolMode === "none" && (poseOverlay || trajectoryMode !== "off") ? (
-          <div className="viewer-analysis-status">
-            {poseOverlay ? <span>姿态</span> : null}
-            {trajectoryMode === "debug" ? <span>调试</span> : trajectoryMode === "trail" ? <span>拖尾</span> : null}
-          </div>
         ) : null}
       </div>
 
