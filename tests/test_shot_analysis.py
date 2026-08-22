@@ -1,4 +1,3 @@
-import json
 from pathlib import Path
 
 from smart_badminton.analytics import analyze_rally_actions
@@ -37,7 +36,7 @@ def test_shot_classifier_labels_slow_contact_near_net_as_candidate(tmp_path: Pat
     assert 0 < shots[0]["confidence"] < 1
 
 
-def test_action_summary_exposes_heatmap_and_shot_counts(tmp_path: Path) -> None:
+def test_action_summary_exposes_heatmap_and_terminal_side(tmp_path: Path) -> None:
     features = tmp_path / "features.csv"
     rallies = tmp_path / "rallies.csv"
     contacts = tmp_path / "contacts.csv"
@@ -72,4 +71,4 @@ def test_action_summary_exposes_heatmap_and_shot_counts(tmp_path: Path) -> None:
     )
 
     assert result["match"]["court_heatmap"][0]["x_meters"] == 2.5
-    assert json.loads(result["rallies"][0]["shot_type_counts"])
+    assert result["rallies"][0]["terminal_landing_side"] == "unknown"

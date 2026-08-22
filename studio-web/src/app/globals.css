@@ -239,13 +239,9 @@ button[data-variant="default"] { color: var(--primary-foreground); }
 .action-heading > span:last-child { color: var(--brand); font-size: 8px; }
 .action-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 5px; }
 .metric { min-width: 0; padding: 7px; border: 1px solid #293522; border-radius: 6px; background: #090e0b; }
-.metric.wide { grid-column: 1 / -1; }
 .metric span { display: block; color: var(--studio-muted); font-size: 8px; }
 .metric strong { display: block; overflow: hidden; margin-top: 4px; font: 750 12px/1.2 ui-monospace, monospace; text-overflow: ellipsis; }
-.metric strong.hot { color: var(--brand); }
-.metric small { display: block; margin-top: 4px; color: #7f9187; font: 7px/1.25 ui-monospace, monospace; }
-.action-versus { display: flex; justify-content: space-between; gap: 8px; margin-top: 8px; color: var(--studio-muted); font-size: 8px; }
-.action-versus strong { color: #d9e4dd; font-family: ui-monospace, monospace; }
+.empty-insight { padding: 10px 0 2px; color: var(--studio-muted); font-size: 10px; }
 .nudge-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; }
 .nudge-grid button { padding: 7px 4px; color: #bec8c2; font-size: 9px; }
 .edit-actions { display: flex; gap: 7px; margin-top: 10px; }

@@ -11,25 +11,13 @@ import type { StudioController } from "@/hooks/use-studio-controller";
 import type { ScoreCorrection } from "@/types/studio";
 
 const eventLabels: Record<string, string> = {
-  landing_in_candidate: "疑似界内落地",
-  landing_out_candidate: "疑似出界",
-  net_candidate: "疑似下网",
+  landing_in_candidate: "界内落地",
+  landing_out_candidate: "出界",
+  net_candidate: "下网",
   flight_lost: "轨迹丢失",
   unknown: "未知",
 };
-const shotLabels: Record<string, string> = {
-  net_candidate: "网前",
-  smash_candidate: "杀球",
-  clear_or_lift_candidate: "高远/挑球",
-  drive_candidate: "平抽",
-  placement_candidate: "变线",
-};
-
-function shotTypes(value: string | Record<string, number> | undefined): Record<string, number> {
-  if (!value) return {};
-  if (typeof value === "object") return value;
-  try { return JSON.parse(value) as Record<string, number>; } catch { return {}; }
-}
+const sideLabels = { near: "近场", far: "远场", unknown: "" };
 
 export function RallyInspector({ studio }: { studio: StudioController }) {
   const segment = studio.selectedSegment;
@@ -37,9 +25,10 @@ export function RallyInspector({ studio }: { studio: StudioController }) {
   const action = !studio.dirty && rally > 0 ? studio.analyticsMap.get(rally) : undefined;
   const score = rally > 0 ? studio.scoreMap.get(rally) : undefined;
   const correction = studio.score.corrections?.find((row) => row.rally === rally);
-  const types = shotTypes(action?.shot_type_counts);
-  const typeSummary = Object.entries(types).map(([name, count]) => `${shotLabels[name] || name} ${count}`).join(" · ");
   const step = 1 / Math.max(1, studio.project?.video.fps ?? 30);
+  const terminal = action
+    ? [sideLabels[action.terminal_landing_side], eventLabels[action.terminal_event] || "未知"].filter(Boolean).join(" · ")
+    : "—";
 
   return (
     <aside className="inspector">
@@ -54,17 +43,17 @@ export function RallyInspector({ studio }: { studio: StudioController }) {
 
       {studio.analytics.available && segment ? (
         <section className={studio.dirty ? "action-insights stale" : "action-insights"}>
-          <div className="action-heading"><span className="eyebrow">EXPERIMENTAL ANALYTICS</span><span>{studio.dirty ? "保存后重新计算" : "候选估算"}</span></div>
-          <div className="action-grid">
-            <Metric label="击球候选" value={action?.estimated_hits ?? "—"} />
-            <Metric label="回合节奏" value={action ? `${Math.round(action.pace_hits_per_minute)}/min` : "—"} />
-            <Metric label="杀球候选" value={action?.smash_candidates ?? "—"} />
-            <Metric label="精彩指数" value={action ? Math.round(action.highlight_score) : "—"} hot={Boolean(action && action.highlight_score >= 70)} />
-            <Metric label="球拍接触" value={action?.contact_hit_candidates ?? "—"} />
-            <Metric label="终局事件" value={action ? eventLabels[action.terminal_event] || "未知" : "—"} />
-            <Metric label="球路类型候选" value={action ? typeSummary || "未知" : "—"} wide />
-          </div>
-          <div className="action-versus"><span>近场移动 <strong>{action ? Math.round(action.near_movement_score) : "—"}</strong></span><span>远场移动 <strong>{action ? Math.round(action.far_movement_score) : "—"}</strong></span></div>
+          <div className="action-heading"><span className="eyebrow">球路数据</span><span>{studio.dirty ? "保存后更新" : action?.rally_style ?? ""}</span></div>
+          {action?.trajectory_available ? (
+            <div className="action-grid">
+              <Metric label="球路覆盖" value={`${Math.round(action.trajectory_coverage_percent)}%`} />
+              <Metric label="空中球路" value={`${action.trajectory_visible_seconds.toFixed(1)} s`} />
+              <Metric label="连续追踪" value={`${action.longest_continuous_track_seconds.toFixed(1)} s`} />
+              <Metric label="轨迹里程" value={`${action.trajectory_distance_frames.toFixed(1)} 画幅`} />
+              <Metric label="网区经过" value={`${action.net_zone_transits} 次`} />
+              <Metric label="终局" value={terminal} />
+            </div>
+          ) : <div className="empty-insight">暂无本场球路</div>}
         </section>
       ) : null}
 
@@ -84,8 +73,8 @@ export function RallyInspector({ studio }: { studio: StudioController }) {
   );
 }
 
-function Metric({ label, value, hot = false, wide = false }: { label: string; value: string | number; hot?: boolean; wide?: boolean }) {
-  return <div className={wide ? "metric wide" : "metric"}><span>{label}</span><strong className={hot ? "hot" : ""}>{value}</strong></div>;
+function Metric({ label, value }: { label: string; value: string | number }) {
+  return <div className="metric"><span>{label}</span><strong>{value}</strong></div>;
 }
 
 function ScoreCard({ studio, score, correction }: { studio: StudioController; score: ReturnType<StudioController["scoreMap"]["get"]>; correction?: ScoreCorrection }) {

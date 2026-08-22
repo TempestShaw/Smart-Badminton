@@ -1,84 +1,72 @@
 from pathlib import Path
 
-import pandas as pd
-
 from smart_badminton.analytics import analyze_rally_actions
 
 
-def test_action_analytics_builds_entertainment_metrics(tmp_path: Path) -> None:
-    times = [index / 10 for index in range(61)]
-    frame = pd.DataFrame(
-        {
-            "time_seconds": times,
-            "audio_hit_score": [1.0 if index in (12, 20, 28, 36, 44) else 0.0 for index in range(61)],
-            "near_swing_score": [0.9 if index in (12, 28, 44) else 0.0 for index in range(61)],
-            "far_swing_score": [0.8 if index in (20, 36) else 0.0 for index in range(61)],
-            "near_lunge_score": [0.8 if index in (25, 40) else 0.0 for index in range(61)],
-            "far_lunge_score": [0.7 if index == 32 else 0.0 for index in range(61)],
-            "near_flow_mean": [2.5] * 61,
-            "far_flow_mean": [2.0] * 61,
-            "near_motion_fraction": [0.09] * 61,
-            "far_motion_fraction": [0.08] * 61,
-        }
-    )
+def _features(path: Path) -> None:
+    path.write_text("time_seconds\n0.0\n1.0\n2.0\n3.0\n", encoding="utf-8")
+
+
+def test_action_analytics_uses_owned_trajectory(tmp_path: Path) -> None:
     features = tmp_path / "features.csv"
     rallies = tmp_path / "rallies.csv"
+    trajectory = tmp_path / "trajectory.csv"
+    events = tmp_path / "events.csv"
     output = tmp_path / "actions.csv"
     summary_path = tmp_path / "summary.json"
-    frame.to_csv(features, index=False)
-    rallies.write_text("rally,start_seconds,end_seconds\n1,1.0,5.0\n", encoding="utf-8")
+    _features(features)
+    rallies.write_text("rally,start_seconds,end_seconds\n1,0.0,3.0\n", encoding="utf-8")
+    trajectory.write_text(
+        "time_seconds,center_x,center_y,source_width,source_height,status,flight_id,detection_status,"
+        "ownership_confidence,ownership_evidence\n"
+        "0.5,100,300,1000,1000,tracked,1,detected,0.8,player_contact\n"
+        "0.6,250,450,1000,1000,tracked,1,detected,0.8,court_continuity\n"
+        "0.7,400,550,1000,1000,tracked,1,detected,0.8,net_crossing\n"
+        "0.8,600,700,1000,1000,tracked,1,detected,0.8,court_continuity\n",
+        encoding="utf-8",
+    )
+    events.write_text(
+        "rally,event,confidence,last_hitter,landing_side,court_x_meters,court_y_meters\n"
+        "1,landing_in_candidate,0.82,far,near,2.5,10.0\n",
+        encoding="utf-8",
+    )
 
-    summary = analyze_rally_actions(features, rallies, output, summary_path)
+    summary = analyze_rally_actions(
+        features,
+        rallies,
+        output,
+        summary_path,
+        events_csv=events,
+        trajectory_csv=trajectory,
+    )
 
     action = summary["rallies"][0]
-    assert summary["available"] is True
-    assert summary["schema_version"] == 3
-    assert action["estimated_hits"] == 5
-    assert action["smash_candidates"] == 5
-    assert action["near_lunges"] == 2
-    assert action["far_lunges"] == 1
-    assert "火力全开" in action["tags"]
-    assert summary["match"]["top_highlights"] == [1]
+    assert summary["schema_version"] == 4
+    assert action["trajectory_available"] is True
+    assert action["trajectory_points"] == 4
+    assert action["trajectory_visible_seconds"] == 0.3
+    assert action["terminal_landing_side"] == "near"
+    assert action["terminal_event"] == "landing_in_candidate"
+    assert summary["match"]["court_heatmap"][0]["x_meters"] == 2.5
     assert output.exists()
     assert summary_path.exists()
 
 
-def test_raw_audio_anchors_ignore_noisy_pose_and_add_one_quiet_strong_swing(tmp_path: Path) -> None:
-    times = [index / 10 for index in range(121)]
-    noisy_near = {27: 0.57, 34: 0.47, 40: 0.57, 45: 0.38, 61: 0.37, 69: 0.86, 84: 0.43, 89: 0.43}
-    frame = pd.DataFrame(
-        {
-            "time_seconds": times,
-            "audio_hit_score": [0.9 if index in (45, 57, 60, 69) else 0.0 for index in range(121)],
-            "near_swing_score": [noisy_near.get(index, 0.0) for index in range(121)],
-            "far_swing_score": [1.0 if index == 92 else 0.0 for index in range(121)],
-            "near_lunge_score": [0.0] * 121,
-            "far_lunge_score": [0.0] * 121,
-            "near_flow_mean": [1.0] * 121,
-            "far_flow_mean": [1.0] * 121,
-            "near_motion_fraction": [0.04] * 121,
-            "far_motion_fraction": [0.04] * 121,
-        }
-    )
+def test_action_analytics_ignores_unowned_neighbor_trajectory(tmp_path: Path) -> None:
     features = tmp_path / "features.csv"
     rallies = tmp_path / "rallies.csv"
-    audio_events = tmp_path / "audio-events.csv"
-    contacts = tmp_path / "contacts.csv"
-    frame.to_csv(features, index=False)
-    rallies.write_text("rally,start_seconds,end_seconds\n1,0.0,11.0\n", encoding="utf-8")
-    audio_events.write_text(
-        "time_seconds,score\n4.48,26.9\n5.68,26.6\n6.01,14.1\n6.86,24.8\n",
-        encoding="utf-8",
-    )
-    contacts.write_text(
-        "rally,time_seconds,player,confidence\n1,4.50,near,0.8\n",
+    trajectory = tmp_path / "trajectory.csv"
+    _features(features)
+    rallies.write_text("rally,start_seconds,end_seconds\n1,0.0,2.0\n", encoding="utf-8")
+    trajectory.write_text(
+        "time_seconds,center_x,center_y,source_width,source_height,status,flight_id,detection_status,"
+        "ownership_confidence,ownership_evidence\n"
+        "0.5,800,300,1000,1000,tracked,9,detected,0.2,unknown\n"
+        "0.6,700,400,1000,1000,tracked,9,detected,0.2,unknown\n",
         encoding="utf-8",
     )
 
-    action = analyze_rally_actions(features, rallies, audio_events_csv=audio_events, contacts_csv=contacts)["rallies"][0]
+    action = analyze_rally_actions(features, rallies, trajectory_csv=trajectory)["rallies"][0]
 
-    assert action["audio_hit_candidates"] == 4
-    assert action["pose_only_hit_candidates"] == 1
-    assert action["estimated_hits"] == 5
-    assert action["contact_hit_candidates"] == 1
-    assert action["hit_estimation_source"] == "contact+audio-pose-fusion"
+    assert action["trajectory_available"] is False
+    assert action["highlight_score"] == 0.0

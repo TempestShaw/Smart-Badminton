@@ -20,20 +20,20 @@ export interface Segment {
 
 export interface AnalyticsAction {
   rally: number;
-  estimated_hits: number;
-  contact_hit_candidates: number;
-  hit_estimation_source: string;
-  audio_hit_candidates: number;
-  pose_only_hit_candidates: number;
-  pace_hits_per_minute: number;
-  smash_candidates: number;
-  near_movement_score: number;
-  far_movement_score: number;
+  trajectory_available: boolean;
+  trajectory_points: number;
+  trajectory_visible_seconds: number;
+  trajectory_coverage_percent: number;
+  longest_continuous_track_seconds: number;
+  trajectory_distance_frames: number;
+  peak_visual_speed_frames_per_second: number;
+  net_zone_transits: number;
+  rally_style: string;
   highlight_score: number;
   last_hitter: "near" | "far" | "unknown";
   terminal_event: string;
   terminal_event_confidence: number;
-  shot_type_counts: string | Record<string, number>;
+  terminal_landing_side: "near" | "far" | "unknown";
   highlight_reasons: string;
   tags: string;
 }
@@ -54,10 +54,11 @@ export interface AnalyticsPayload {
   rallies?: AnalyticsAction[];
   match?: {
     rallies: number;
-    estimated_hits: number;
-    average_pace: number;
+    trajectory_rallies: number;
+    trajectory_visible_seconds: number;
+    average_coverage_percent: number;
+    net_zone_transits: number;
     top_highlights: number[];
-    shot_type_counts: Record<string, number>;
     court_heatmap: HeatmapPoint[];
   };
 }
