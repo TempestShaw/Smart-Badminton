@@ -1,10 +1,12 @@
 "use client";
 
+import { useState } from "react";
 import { Calculator, LoaderCircle, Scissors, Trash2 } from "lucide-react";
 
-import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from "@/components/ui/alert-dialog";
+import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from "@/components/ui/alert-dialog";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import type { StudioController } from "@/hooks/use-studio-controller";
@@ -18,6 +20,7 @@ const eventLabels: Record<string, string> = {
   unknown: "未知",
 };
 const sideLabels = { near: "近场", far: "远场", unknown: "" };
+const SKIP_DELETE_CONFIRM_KEY = "smart-badminton:skip-delete-confirm:v1";
 
 export function RallyInspector({ studio }: { studio: StudioController }) {
   const segment = studio.selectedSegment;
@@ -25,10 +28,31 @@ export function RallyInspector({ studio }: { studio: StudioController }) {
   const action = !studio.dirty && rally > 0 ? studio.analyticsMap.get(rally) : undefined;
   const score = rally > 0 ? studio.scoreMap.get(rally) : undefined;
   const correction = studio.score.corrections?.find((row) => row.rally === rally);
+  const [deleteOpen, setDeleteOpen] = useState(false);
+  const [skipDeleteConfirm, setSkipDeleteConfirm] = useState(
+    () => typeof window !== "undefined" && window.localStorage.getItem(SKIP_DELETE_CONFIRM_KEY) === "1",
+  );
+  const [rememberDelete, setRememberDelete] = useState(false);
   const step = 1 / Math.max(1, studio.project?.video.fps ?? 30);
   const terminal = action
     ? [sideLabels[action.terminal_landing_side], eventLabels[action.terminal_event] || "未知"].filter(Boolean).join(" · ")
     : "—";
+  const requestDelete = () => {
+    if (skipDeleteConfirm) {
+      studio.deleteSegment();
+      return;
+    }
+    setRememberDelete(false);
+    setDeleteOpen(true);
+  };
+  const confirmDelete = () => {
+    if (rememberDelete) {
+      window.localStorage.setItem(SKIP_DELETE_CONFIRM_KEY, "1");
+      setSkipDeleteConfirm(true);
+    }
+    setDeleteOpen(false);
+    studio.deleteSegment();
+  };
 
   return (
     <aside className="inspector">
@@ -65,7 +89,17 @@ export function RallyInspector({ studio }: { studio: StudioController }) {
       </div>
       <div className="edit-actions">
         <Button variant="outline" disabled={!segment} onClick={studio.splitSegment}><Scissors />在播放头分割</Button>
-        <AlertDialog><AlertDialogTrigger asChild><Button variant="destructive" disabled={!segment}><Trash2 />删除片段</Button></AlertDialogTrigger><AlertDialogContent><AlertDialogHeader><AlertDialogTitle>删除 R{String(rally).padStart(2, "0")}？</AlertDialogTitle><AlertDialogDescription>这个片段会从当前时间轴移除；之后仍可用“撤销”恢复。</AlertDialogDescription></AlertDialogHeader><AlertDialogFooter><AlertDialogCancel>取消</AlertDialogCancel><AlertDialogAction onClick={studio.deleteSegment}>删除片段</AlertDialogAction></AlertDialogFooter></AlertDialogContent></AlertDialog>
+        <Button variant="destructive" disabled={!segment} onClick={requestDelete}><Trash2 />删除片段</Button>
+        <AlertDialog open={deleteOpen} onOpenChange={setDeleteOpen}>
+          <AlertDialogContent>
+            <AlertDialogHeader>
+              <AlertDialogTitle>删除 R{String(rally).padStart(2, "0")}？</AlertDialogTitle>
+              <AlertDialogDescription>片段会从时间轴移除，可用“撤销”恢复。</AlertDialogDescription>
+            </AlertDialogHeader>
+            <Label className="delete-confirm-option"><Checkbox checked={rememberDelete} onCheckedChange={(checked) => setRememberDelete(checked === true)} />下次不再提醒</Label>
+            <AlertDialogFooter><AlertDialogCancel>取消</AlertDialogCancel><AlertDialogAction onClick={confirmDelete}>删除片段</AlertDialogAction></AlertDialogFooter>
+          </AlertDialogContent>
+        </AlertDialog>
       </div>
       <div className="shortcut-help"><span className="eyebrow">快捷键</span><p><kbd>Space</kbd> 播放　<kbd>←</kbd><kbd>→</kbd> 逐帧</p><p><kbd>[</kbd> 设为开始　<kbd>]</kbd> 设为结束</p></div>
 

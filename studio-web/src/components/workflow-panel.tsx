@@ -85,7 +85,7 @@ export function WorkflowPanel({
           <AccordionContent className="workflow-content tool-grid">
             {shuttle?.available_modes.length ? (
               <Label className="shuttle-mode-select">
-                羽球检测
+                <span>羽球检测</span>
                 <Select
                   value={shuttle.mode ?? undefined}
                   disabled={running}
@@ -100,19 +100,20 @@ export function WorkflowPanel({
                 </Select>
               </Label>
             ) : null}
-            <Button variant="outline" className={toolMode === "calibration" ? "tool-card active" : "tool-card"} onClick={() => onToolMode(toolMode === "calibration" ? "none" : "calibration")}>
+            <Button size="sm" variant="outline" className={toolMode === "calibration" ? "tool-card active" : "tool-card"} onClick={() => onToolMode(toolMode === "calibration" ? "none" : "calibration")}>
               <Crosshair /><span><strong>框选球场</strong></span>
             </Button>
-            <Button variant="outline" className={toolMode === "shuttle" ? "tool-card active" : "tool-card"} disabled={!shuttle?.configured && !shuttle?.generated} onClick={() => onToolMode(toolMode === "shuttle" ? "none" : "shuttle")}>
+            <Button size="sm" variant="outline" className={toolMode === "shuttle" ? "tool-card active" : "tool-card"} disabled={!shuttle?.configured && !shuttle?.generated} onClick={() => onToolMode(toolMode === "shuttle" ? "none" : "shuttle")}>
               <ScanSearch /><span><strong>{shuttle?.stale ? "球路需更新" : shuttle?.generated ? "查看／修正球路" : "羽球轨迹"}</strong></span>
             </Button>
             <div className="tool-note shuttle-status-note">
               <div><Badge variant={shuttle?.stale ? "destructive" : shuttle?.generated ? "default" : shuttle?.configured ? "outline" : "destructive"}>{shuttleRunning ? "分析中" : shuttle?.stale ? "需更新" : shuttle?.generated ? "已生成" : shuttle?.configured ? "未分析" : "不可用"}</Badge></div>
-              <Button size="sm" variant="secondary" disabled={!shuttle?.configured || running} onClick={() => void studio.launchShuttleAnalysis(Boolean(shuttle?.generated))}><ScanSearch />{shuttleRunning ? "正在分析球路…" : shuttle?.stale ? "按新校准重新分析" : shuttle?.generated ? "重新分析当前球路" : "分析当前视频球路"}</Button>
+              <Button size="xs" variant="secondary" disabled={!shuttle?.configured || running} onClick={() => void studio.launchShuttleAnalysis(Boolean(shuttle?.generated))}><ScanSearch />{shuttleRunning ? "正在分析球路…" : shuttle?.stale ? "按新校准重新分析" : shuttle?.generated ? "重新分析当前球路" : "分析当前视频球路"}</Button>
             </div>
             <div className="tool-note visual-analysis-card">
               <strong>姿态与球路</strong>
               <Button
+                size="xs"
                 disabled={running || (!pose?.configured && !shuttle?.configured)}
                 onClick={() => void studio.launchVisualAnalysis(Boolean(pose?.current && shuttle?.current))}
               >
