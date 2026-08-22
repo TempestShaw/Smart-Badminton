@@ -1,0 +1,23 @@
+{
+  "project_url": "https://github.com/your-name/smart-badminton",
+  "sources": [
+    {
+      "id": "camera-a",
+      "camera_id": "phone-low-angle",
+      "image_directory": "datasets/camera-a/images",
+      "label_directory": "datasets/camera-a/labels",
+      "source_url": "https://example.invalid/source-a",
+      "license": "CC-BY-4.0",
+      "redistributable": false
+    },
+    {
+      "id": "camera-b",
+      "camera_id": "tripod-high-angle",
+      "image_directory": "datasets/camera-b/images",
+      "label_directory": "datasets/camera-b/labels",
+      "source_url": "https://example.invalid/source-b",
+      "license": "CC-BY-4.0",
+      "redistributable": false
+    }
+  ]
+}

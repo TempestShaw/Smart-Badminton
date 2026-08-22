@@ -1,0 +1,20 @@
+import type { Metadata } from "next";
+import "./globals.css";
+import { Toaster } from "@/components/ui/sonner";
+import { TooltipProvider } from "@/components/ui/tooltip";
+
+export const metadata: Metadata = {
+  title: "Smart Badminton Studio",
+  description: "Local-first badminton rally editor",
+};
+
+export default function RootLayout({ children }: Readonly<{ children: React.ReactNode }>) {
+  return (
+    <html lang="zh-CN" className="dark font-sans">
+      <body>
+        <TooltipProvider>{children}</TooltipProvider>
+        <Toaster richColors position="bottom-right" />
+      </body>
+    </html>
+  );
+}

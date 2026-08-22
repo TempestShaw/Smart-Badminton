@@ -1,0 +1,3 @@
+rally,start_seconds,end_seconds,boundary_confidence,review_required,boundary_reason
+1,0.750,1.850,1.000,no,human reviewed synthetic landing
+2,3.200,5.600,1.000,no,human reviewed synthetic net ending

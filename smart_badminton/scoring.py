@@ -1,0 +1,256 @@
+from __future__ import annotations
+
+import csv
+import json
+import os
+import shutil
+import tempfile
+from pathlib import Path
+from typing import Any
+
+from .io import load_rallies, read_rows, write_rows
+
+CORRECTION_FIELDS = ["rally", "winner", "server_override", "note"]
+SCORE_FIELDS = [
+    "rally",
+    "winner",
+    "winner_source",
+    "near_score",
+    "far_score",
+    "near_games",
+    "far_games",
+    "server_next",
+    "game_finished",
+    "confidence",
+    "note",
+    "score_complete",
+]
+NEXT_SERVE_CONFIDENCE_THRESHOLD = 0.72
+
+
+def load_score_corrections(path: Path | None) -> list[dict[str, Any]]:
+    if path is None or not path.exists():
+        return []
+    return [
+        {
+            "rally": int(row["rally"]),
+            "winner": str(row.get("winner", "auto")),
+            "server_override": str(row.get("server_override", "unknown")),
+            "note": str(row.get("note", "")),
+        }
+        for row in read_rows(path)
+    ]
+
+
+def validate_score_corrections(payload: Any, rally_count: int) -> list[dict[str, Any]]:
+    if not isinstance(payload, list):
+        raise TypeError("score corrections must be a list")
+    result = []
+    seen = set()
+    for index, item in enumerate(payload, 1):
+        if not isinstance(item, dict):
+            raise TypeError(f"score correction {index} is invalid")
+        rally = int(item["rally"])
+        winner = str(item.get("winner", "auto"))
+        server = str(item.get("server_override", "unknown"))
+        if not 1 <= rally <= rally_count:
+            raise ValueError(f"score correction {index} rally is outside the timeline")
+        if rally in seen:
+            raise ValueError(f"score correction for rally {rally} is duplicated")
+        if winner not in {"near", "far", "no_point", "auto"}:
+            raise ValueError(f"score correction {index} winner is invalid")
+        if server not in {"near", "far", "unknown"}:
+            raise ValueError(f"score correction {index} server override is invalid")
+        seen.add(rally)
+        result.append(
+            {
+                "rally": rally,
+                "winner": winner,
+                "server_override": server,
+                "note": str(item.get("note", ""))[:240],
+            }
+        )
+    return sorted(result, key=lambda row: int(row["rally"]))
+
+
+def save_score_corrections(path: Path, rows: list[dict[str, Any]]) -> Path | None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    backup = path.with_suffix(path.suffix + ".bak") if path.exists() else None
+    if backup is not None:
+        shutil.copy2(path, backup)
+    descriptor, temporary_name = tempfile.mkstemp(prefix=f".{path.stem}-", suffix=".csv", dir=path.parent)
+    try:
+        with os.fdopen(descriptor, "w", newline="", encoding="utf-8") as output:
+            writer = csv.DictWriter(output, fieldnames=CORRECTION_FIELDS)
+            writer.writeheader()
+            writer.writerows(rows)
+        os.replace(temporary_name, path)
+    finally:
+        if os.path.exists(temporary_name):
+            os.unlink(temporary_name)
+    return backup
+
+
+def _automatic_winner(event: dict[str, str] | None) -> tuple[str, float, str]:
+    if not event or event.get("score_usable") != "yes":
+        return "unknown", 0.0, "terminal event is not score-safe"
+    confidence = float(event.get("confidence", 0.0))
+    if confidence < 0.75:
+        return "unknown", confidence, "terminal event confidence is below 0.75"
+    event_name = str(event.get("event", "unknown")).replace("_candidate", "")
+    if event_name == "landing_in":
+        landing_side = str(event.get("landing_side", "unknown"))
+        if landing_side in {"near", "far"}:
+            return (
+                "far" if landing_side == "near" else "near",
+                confidence,
+                f"shuttle landed in {landing_side} court",
+            )
+    hitter = str(event.get("last_hitter", "unknown"))
+    if hitter not in {"near", "far"}:
+        return "unknown", confidence, "last hitter is unknown"
+    if event_name == "landing_in":
+        return hitter, confidence, "score-safe in landing by last hitter"
+    if event_name in {"landing_out", "net"}:
+        return ("far" if hitter == "near" else "near"), confidence, f"score-safe {event_name} fault"
+    return "unknown", confidence, "event type does not determine a winner"
+
+
+def _game_won(score: int, opponent: int) -> bool:
+    return score >= 21 and (score - opponent >= 2 or score >= 30)
+
+
+def calculate_score_state(
+    rally_count: int,
+    events: list[dict[str, str]] | None = None,
+    corrections: list[dict[str, Any]] | None = None,
+    initial_server: str = "unknown",
+    serve_observations: list[dict[str, Any]] | None = None,
+) -> list[dict[str, Any]]:
+    event_map = {int(row["rally"]): row for row in events or []}
+    correction_map = {int(row["rally"]): row for row in corrections or []}
+    serve_map = {int(row["rally"]): row for row in serve_observations or []}
+    near_score = far_score = near_games = far_games = 0
+    first_observed_server = serve_map.get(1, {}).get("server", "unknown")
+    server = initial_server if initial_server in {"near", "far"} else str(first_observed_server)
+    if server not in {"near", "far"}:
+        server = "unknown"
+    unresolved_before = 0
+    results = []
+    for rally in range(1, rally_count + 1):
+        winner, confidence, note = _automatic_winner(event_map.get(rally))
+        source = "automatic-terminal" if winner in {"near", "far"} else "unresolved"
+        next_serve = serve_map.get(rally + 1)
+        if winner == "unknown" and next_serve:
+            next_server = str(next_serve.get("server", "unknown"))
+            next_confidence = float(next_serve.get("confidence", 0.0))
+            if next_server in {"near", "far"} and next_confidence >= NEXT_SERVE_CONFIDENCE_THRESHOLD:
+                winner = next_server
+                confidence = next_confidence
+                source = "automatic-next-serve"
+                note = f"next rally has a formal {next_server} serve ({next_confidence:.2f})"
+        correction = correction_map.get(rally)
+        if correction and correction.get("winner") != "auto":
+            requested = str(correction["winner"])
+            winner = "unknown" if requested == "no_point" else requested
+            source = "manual-no-point" if requested == "no_point" else "manual"
+            confidence = 1.0
+            note = str(correction.get("note") or "manual Studio correction")
+        if winner == "near":
+            near_score += 1
+            server = "near"
+        elif winner == "far":
+            far_score += 1
+            server = "far"
+        elif source == "unresolved":
+            unresolved_before += 1
+        if correction and correction.get("server_override") in {"near", "far"}:
+            server = str(correction["server_override"])
+            note = f"{note}; manual server override"
+        game_finished = ""
+        if _game_won(near_score, far_score):
+            near_games += 1
+            game_finished = "near"
+        elif _game_won(far_score, near_score):
+            far_games += 1
+            game_finished = "far"
+        results.append(
+            {
+                "rally": rally,
+                "winner": winner,
+                "winner_source": source,
+                "near_score": near_score,
+                "far_score": far_score,
+                "near_games": near_games,
+                "far_games": far_games,
+                "server_next": server,
+                "game_finished": game_finished,
+                "confidence": round(confidence, 3),
+                "note": note,
+                "score_complete": unresolved_before == 0,
+            }
+        )
+        if game_finished:
+            near_score = far_score = 0
+    return results
+
+
+def analyze_score(
+    rallies_csv: Path,
+    output_csv: Path,
+    events_csv: Path | None = None,
+    corrections_csv: Path | None = None,
+    summary_json: Path | None = None,
+    initial_server: str = "unknown",
+    serve_observations: list[dict[str, Any]] | None = None,
+) -> dict[str, Any]:
+    rallies = load_rallies(rallies_csv)
+    events = read_rows(events_csv) if events_csv is not None and events_csv.exists() else []
+    corrections = load_score_corrections(corrections_csv)
+    rows = calculate_score_state(
+        len(rallies),
+        events,
+        corrections,
+        initial_server,
+        serve_observations,
+    )
+    write_rows(output_csv, SCORE_FIELDS, rows)
+    summary = {
+        "available": True,
+        "rallies": rows,
+        "corrections": corrections,
+        "resolved": sum(row["winner"] in {"near", "far"} for row in rows),
+        "unresolved": sum(row["winner"] == "unknown" and row["winner_source"] == "unresolved" for row in rows),
+        "manual": sum(str(row["winner_source"]).startswith("manual") for row in rows),
+        "automatic": sum(str(row["winner_source"]).startswith("automatic") for row in rows),
+        "complete": all(bool(row["score_complete"]) for row in rows),
+        "method": "terminal event or next rally's visually detected formal server",
+        "disclaimer": (
+            "Automatic points require independent visual evidence. Unresolved rallies are not counted, so a partial "
+            "score is never presented as official. Manual review remains independent of editing."
+        ),
+    }
+    if summary_json is not None:
+        summary_json.parent.mkdir(parents=True, exist_ok=True)
+        summary_json.write_text(json.dumps(summary, ensure_ascii=False, indent=2), encoding="utf-8")
+    return summary
+
+
+def evaluate_score(predicted_csv: Path, truth_csv: Path, output_json: Path | None = None) -> dict[str, Any]:
+    predicted = {int(row["rally"]): row.get("winner", "unknown") for row in read_rows(predicted_csv)}
+    truth = {int(row["rally"]): row.get("winner", "unknown") for row in read_rows(truth_csv)}
+    comparable = [rally for rally, winner in truth.items() if winner in {"near", "far"}]
+    covered = [rally for rally in comparable if predicted.get(rally) in {"near", "far"}]
+    correct = sum(predicted[rally] == truth[rally] for rally in covered)
+    result = {
+        "truth_rallies": len(comparable),
+        "covered_rallies": len(covered),
+        "coverage": len(covered) / len(comparable) if comparable else 0.0,
+        "accuracy_on_covered": correct / len(covered) if covered else 0.0,
+        "unresolved_rallies": [rally for rally in comparable if rally not in covered],
+        "editing_metrics_included": False,
+    }
+    if output_json is not None:
+        output_json.parent.mkdir(parents=True, exist_ok=True)
+        output_json.write_text(json.dumps(result, indent=2), encoding="utf-8")
+    return result

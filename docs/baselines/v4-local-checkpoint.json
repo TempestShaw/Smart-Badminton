@@ -1,0 +1,62 @@
+{
+  "schema_version": 1,
+  "checkpoint": "v4-frozen",
+  "rally_model": {
+    "path": "models/rally-state-final-v4-frozen.joblib",
+    "sha256": "e419b60b3267150562f86b89b49e08fe9fdf0c3b48a31ef61505a585ebb33ff1",
+    "bytes": 897240
+  },
+  "vision_models": [
+    {
+      "path": "models/yolo11n-pose.pt",
+      "sha256": "869e83fcdffdc7371fa4e34cd8e51c838cc729571d1635e5141e3075e9319dc0",
+      "bytes": 6255593
+    },
+    {
+      "path": "models/yolo11s-ball.pt",
+      "sha256": "c21113960fadce7f96b9f70f86802142482775405f60a9761328491868edf31b",
+      "bytes": 19173075
+    },
+    {
+      "path": "ThirdParty/TrackNetV3-master/ckpts/TrackNet_best.pt",
+      "sha256": "df867641a02712b021f04548ff4b1208ddfdb47f629ab2094ceb978667e83b1a",
+      "bytes": 136190877
+    },
+    {
+      "path": "ThirdParty/TrackNetV3-master/ckpts/InpaintNet_best.pt",
+      "sha256": "5749b66b8002f3ad9e0af841604004706fc796df30599e6bf01952696009688c",
+      "bytes": 6264451
+    }
+  ],
+  "camera_config": {
+    "path": "local_configs/dji_0009.json",
+    "sha256": "1657749228d37e67f041e7d07154a13b76c4a87d5bb5f83f24f41a00396b6bc8"
+  },
+  "truth_locks": [
+    {
+      "id": "Match1",
+      "path": "2026-08-19/Standard_Answers/0007_rallies_ground_truth.csv",
+      "sha256": "dde7550f77b7dca313bef22fdfc550d296fb4d903df28e5018945f0d8527d477"
+    },
+    {
+      "id": "Match2",
+      "path": "2026-08-19/Standard_Answers/Match2_rallies_ground_truth.csv",
+      "sha256": "0efdb6bb9d5e4e3b4ab1742c3e6b42fd725472b72e0f5918fd5fd0a20b6fea32"
+    },
+    {
+      "id": "Match3",
+      "path": "2026-08-19/Standard_Answers/Match3_rallies_ground_truth.csv",
+      "sha256": "eb5d214e01fd4d5731cddeea8c7e9331b6bf2193e1c5fbc171d1af1e8e537e2c"
+    },
+    {
+      "id": "Match4",
+      "path": "2026-08-19/Standard_Answers/Match4_rallies_ground_truth.csv",
+      "sha256": "5c9e3d6e86ea3cf9f82e8ede1c0469abd0c11e84b3519c2dd0ec547fb4f077e7"
+    },
+    {
+      "id": "Match5",
+      "path": "2026-08-19/Standard_Answers/Match5_rallies_ground_truth.csv",
+      "sha256": "caffd362fc74f67a704eb7ac8d72c3a46d4146b397ccfddcd19f1895cddb6ee7"
+    }
+  ]
+}

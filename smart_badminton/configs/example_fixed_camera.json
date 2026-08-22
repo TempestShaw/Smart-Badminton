@@ -1,0 +1,37 @@
+{
+  "name": "Example fixed-camera badminton court",
+  "reference_frame": {
+    "width": 1920,
+    "height": 1080,
+    "source_time_seconds": 60.0
+  },
+  "calibration": {
+    "mode": "normalized ROI example",
+    "court_corners_normalized": null,
+    "shuttle_perspective_axis_normalized": [],
+    "shuttle_vanishing_extension": 1.5,
+    "note": "Replace every polygon with coordinates measured from your own camera preview."
+  },
+  "masks_normalized": {
+    "active_court_polygon": [],
+    "court_ground_polygon": [[0.10, 1.0], [0.30, 0.40], [0.70, 0.40], [0.90, 1.0]],
+    "near_player_zone": [[0.10, 1.0], [0.20, 0.62], [0.80, 0.62], [0.90, 1.0]],
+    "far_player_zone": [[0.25, 0.67], [0.30, 0.38], [0.70, 0.38], [0.75, 0.67]],
+    "net_band": [[0.20, 0.64], [0.28, 0.45], [0.72, 0.45], [0.80, 0.64]],
+    "shuttle_airspace_polygon": [[0.05, 1.0], [0.12, 0.12], [0.88, 0.12], [0.95, 1.0]],
+    "static_false_positive_polygons": [],
+    "background_court_polygons": []
+  },
+  "analysis": {
+    "sample_fps": 10.0,
+    "pose_fps": 10.0,
+    "pose_confidence": 0.2,
+    "audio_event_window_seconds": 0.12,
+    "motion_threshold": 7,
+    "serve_preroll_seconds": 0.35,
+    "end_postroll_seconds": 0.55,
+    "end_pending_seconds": 0.55,
+    "maximum_internal_gap_seconds": 1.2,
+    "suppress_handoffs": true
+  }
+}

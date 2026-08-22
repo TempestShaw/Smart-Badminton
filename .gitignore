@@ -1,0 +1,53 @@
+# Local videos and per-session artifacts
+/2026-*/
+*.mp4
+*.MP4
+*.lrf
+*.LRF
+*.mov
+*.MOV
+*.wav
+
+# Models and third-party checkouts are downloaded separately
+/models/
+/ThirdParty/
+*.pt
+*.pth
+*.onnx
+*.joblib
+
+# Local runtimes and legacy experiment scripts
+/.tools/
+/tools/
+/local_configs/
+/.e2e/
+
+# Generated analysis output
+/analysis/
+/output/
+/outputs/
+/runs/
+*.log
+*.csv.bak
+
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+/build/
+.pytest_cache/
+.ruff_cache/
+.venv/
+venv/
+
+# Next.js Studio source build artifacts
+/studio-web/node_modules/
+/studio-web/.next/
+/studio-web/out/
+/studio-web/*.tsbuildinfo
+
+# Editors and OS
+.idea/
+.vscode/
+.DS_Store
+Thumbs.db
