@@ -232,9 +232,15 @@ See [Architecture](docs/architecture.md), [Repository audit](docs/repository-aud
 
 ## Data and models
 
-No match video, extracted frame, venue image, trained model or third-party checkpoint is included. Keep those artifacts outside Git; the provided `.gitignore` excludes the local working directories used during development.
+No match video, extracted frame, venue image, human label or checkpoint is included. The publication guard rejects those files when they are tracked.
 
 [`examples/privacy_safe_sample`](examples/privacy_safe_sample) is a synthetic, metadata-only fixture containing calibration, trajectory statuses, user shuttle corrections and a reviewed timeline. It contains no recorded person, venue or audio and is exercised by the test suite.
+
+Redistributable checkpoints may be added through Git LFS after their checksum-bound license sidecar passes `smart-badminton doctor`. See [`models/README.md`](models/README.md).
+
+## Automation
+
+CI tests Python 3.10 and 3.12, rebuilds the Studio, runs the publication guard and produces a verified wheel. A `v<version>` tag publishes that wheel to a GitHub Release when it matches `pyproject.toml`.
 
 ## License
 

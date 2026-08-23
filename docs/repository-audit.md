@@ -28,7 +28,7 @@
 ## Local-only and intentionally excluded
 
 - dated match directories: private masters, proxies, edits, contact sheets and extracted features;
-- `models/`: pose checkpoints and locally trained rally classifiers;
+- unverified files under `models/`;
 - `.tools/`: the development Python/runtime environment;
 - `ThirdParty/`: exploratory upstream checkouts;
 - `tools/`: one-off scripts used during investigation and superseded by package commands.
@@ -36,7 +36,7 @@
 ## Third-party experiments
 
 - Good-Badminton informed the optional shuttle detector interface. Its full source is not vendored. The tested checkpoint produced useful candidates but also persistent venue false positives, so shuttle absence is never an end condition.
-- TrackNetV3 was evaluated but did not transfer reliably to the wide fixed-camera footage. It is not imported, packaged or required.
+- TrackNetV3 is an optional Hybrid detector input and remains a separately downloaded checkpoint.
 
 ## Publication gates
 
@@ -44,5 +44,5 @@
   relicensed by this repository;
 - CI must rebuild the React export, install the Python package, run tests and lint, and produce a wheel from a clean
   checkout; `scripts/build_wheel.py` also makes repeated local builds deterministic by rejecting stale package data;
-- the release owner must choose the final Git hosting namespace before publishing;
+- `scripts/repository_guard.py` rejects private runtime data, credentials and unlicensed model files;
 - add only media for which publication permission is explicit.

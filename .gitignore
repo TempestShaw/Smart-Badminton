@@ -1,4 +1,4 @@
-# Local videos and per-session artifacts
+# Private media and per-match state
 /2026-*/
 *.mp4
 *.MP4
@@ -7,9 +7,32 @@
 *.mov
 *.MOV
 *.wav
+**/Original/
+**/Proxy/
+**/Edited/
+**/Metadata/
+**/Analysis/
+**/Calibration/
+**/.smart-badminton/
 
-# Models and third-party checkouts are downloaded separately
-/models/
+# The repository fixture contains synthetic metadata only
+!examples/privacy_safe_sample/Analysis/
+!examples/privacy_safe_sample/Analysis/**
+!examples/privacy_safe_sample/Calibration/
+!examples/privacy_safe_sample/Calibration/**
+
+# Credentials
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+*.p12
+
+# Checkpoints require a verified license sidecar before explicit inclusion
+/models/*
+!/models/README.md
+!/models/*.license.json
 /ThirdParty/
 *.pt
 *.pth
@@ -35,6 +58,7 @@ __pycache__/
 *.py[cod]
 *.egg-info/
 /build/
+/dist/
 .pytest_cache/
 .ruff_cache/
 .venv/

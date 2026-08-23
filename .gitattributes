@@ -4,3 +4,7 @@
 *.jpg binary
 *.jpeg binary
 *.gif binary
+models/*.joblib filter=lfs diff=lfs merge=lfs -text
+models/*.onnx filter=lfs diff=lfs merge=lfs -text
+models/*.pt filter=lfs diff=lfs merge=lfs -text
+models/*.pth filter=lfs diff=lfs merge=lfs -text
