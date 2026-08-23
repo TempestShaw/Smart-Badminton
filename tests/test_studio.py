@@ -570,6 +570,30 @@ def test_studio_evidence_payload_exports_compact_signal_spans(tmp_path: Path) ->
     assert payload["serves"][0]["server"] == "near"
 
 
+def test_studio_payload_cache_reuses_results_until_an_input_changes(tmp_path: Path) -> None:
+    video = tmp_path / "source.mp4"
+    timeline = tmp_path / "rallies.csv"
+    source = tmp_path / "evidence.csv"
+    video.write_bytes(b"video")
+    timeline.write_text("rally,start_seconds,end_seconds\n1,0,2\n", encoding="utf-8")
+    source.write_text("first", encoding="utf-8")
+    state = StudioState(video=video, rallies=timeline, output=tmp_path / "edited.mp4")
+    calls = 0
+
+    def build() -> dict[str, object]:
+        nonlocal calls
+        calls += 1
+        return {"value": source.read_text(encoding="utf-8")}
+
+    assert studio._cached_payload(state, "test", (source,), build)["value"] == "first"
+    assert studio._cached_payload(state, "test", (source,), build)["value"] == "first"
+    assert calls == 1
+
+    source.write_text("second value", encoding="utf-8")
+    assert studio._cached_payload(state, "test", (source,), build)["value"] == "second value"
+    assert calls == 2
+
+
 def test_studio_api_creates_and_backs_up_interactive_calibration(tmp_path: Path, monkeypatch) -> None:
     video = tmp_path / "source.mp4"
     video.write_bytes(b"placeholder")

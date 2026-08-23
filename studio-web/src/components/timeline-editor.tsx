@@ -39,6 +39,12 @@ interface ScrubSeek {
   timer: number | null;
 }
 
+interface TimelineZoomControlProps {
+  value: number;
+  onPreview: (value: number) => void;
+  onCommit: (value: number) => void;
+}
+
 function timelinePercent(time: number, duration: number): string {
   if (duration <= 0) return "0%";
   return `${Math.max(0, Math.min(100, time / duration * 100))}%`;
@@ -77,6 +83,30 @@ const EvidenceItems = memo(function EvidenceItems({ evidence, duration }: { evid
   );
 });
 
+const TimelineZoomControl = memo(function TimelineZoomControl({ value, onPreview, onCommit }: TimelineZoomControlProps) {
+  const [displayValue, setDisplayValue] = useState(value);
+
+  useEffect(() => setDisplayValue(value), [value]);
+
+  return (
+    <label className="zoom-control">
+      缩放
+      <Slider
+        aria-label="时间轴缩放"
+        min={1.5}
+        max={120}
+        step={0.5}
+        value={[displayValue]}
+        onValueChange={([next]) => {
+          setDisplayValue(next);
+          onPreview(next);
+        }}
+        onValueCommit={([next]) => onCommit(next)}
+      />
+    </label>
+  );
+});
+
 export function TimelineEditor({ studio }: { studio: StudioController }) {
   const scrollRef = useRef<HTMLDivElement>(null);
   const playheadRef = useRef<HTMLDivElement>(null);
@@ -85,6 +115,7 @@ export function TimelineEditor({ studio }: { studio: StudioController }) {
   const scrubSeekRef = useRef<ScrubSeek>({ lastSeekAt: 0, pendingTime: 0, timer: null });
   const zoomFrameRef = useRef<number | null>(null);
   const pendingZoomRef = useRef(8);
+  const timelineScaleRef = useRef(8);
   const [pixelsPerSecond, setPixelsPerSecond] = useState(8);
   const [containerWidth, setContainerWidth] = useState(900);
   const { finishPreviewChange, previewSegments, project, videoRef } = studio;
@@ -92,6 +123,7 @@ export function TimelineEditor({ studio }: { studio: StudioController }) {
   const duration = studio.project?.video.duration ?? 0;
   const timelineWidth = Math.max(400, containerWidth - GUTTER, duration * pixelsPerSecond);
   const timelineScale = duration > 0 ? timelineWidth / duration : pixelsPerSecond;
+  timelineScaleRef.current = timelineScale;
   const rulerMajor = pixelsPerSecond >= 14 ? 5 : pixelsPerSecond >= 6 ? 10 : 30;
 
   const scheduleZoom = useCallback((value: number) => {
@@ -99,9 +131,15 @@ export function TimelineEditor({ studio }: { studio: StudioController }) {
     if (zoomFrameRef.current !== null) return;
     zoomFrameRef.current = window.requestAnimationFrame(() => {
       zoomFrameRef.current = null;
-      setPixelsPerSecond(pendingZoomRef.current);
+      const nextWidth = Math.max(400, containerWidth - GUTTER, duration * pendingZoomRef.current);
+      timelineScaleRef.current = duration > 0 ? nextWidth / duration : pendingZoomRef.current;
+      scrollRef.current?.style.setProperty("--timeline-width", `${nextWidth}px`);
+      const video = videoRef.current;
+      if (playheadRef.current && video) {
+        playheadRef.current.style.transform = `translateX(${(video.currentTime || 0) * timelineScaleRef.current}px)`;
+      }
     });
-  }, []);
+  }, [containerWidth, duration, videoRef]);
 
   const commitZoom = useCallback((value: number) => {
     pendingZoomRef.current = value;
@@ -109,6 +147,10 @@ export function TimelineEditor({ studio }: { studio: StudioController }) {
     zoomFrameRef.current = null;
     setPixelsPerSecond(value);
   }, []);
+
+  useEffect(() => {
+    scrollRef.current?.style.setProperty("--timeline-width", `${timelineWidth}px`);
+  }, [timelineWidth]);
 
   useEffect(() => {
     const element = scrollRef.current;
@@ -123,7 +165,7 @@ export function TimelineEditor({ studio }: { studio: StudioController }) {
     let frame = 0;
     const update = () => {
       if (playheadRef.current && video) {
-        playheadRef.current.style.transform = `translateX(${(video.currentTime || 0) * timelineScale}px)`;
+        playheadRef.current.style.transform = `translateX(${(video.currentTime || 0) * timelineScaleRef.current}px)`;
       }
       if (video && !video.paused) frame = window.requestAnimationFrame(update);
     };
@@ -139,7 +181,7 @@ export function TimelineEditor({ studio }: { studio: StudioController }) {
       video?.removeEventListener("play", start);
       video?.removeEventListener("seeked", update);
     };
-  }, [studio.mediaSource, timelineScale, videoRef]);
+  }, [studio.mediaSource, videoRef]);
 
   const seekPreview = useCallback((time: number, immediate = false) => {
     const video = videoRef.current;
@@ -198,7 +240,7 @@ export function TimelineEditor({ studio }: { studio: StudioController }) {
       const drag = dragRef.current;
       if (!drag || !project) return;
       const originalSegment = drag.original[drag.index];
-      const delta = (event.clientX - drag.startX) / timelineScale;
+      const delta = (event.clientX - drag.startX) / timelineScaleRef.current;
       const value = originalSegment[drag.edge] + delta;
       const next = clampBoundary(
         drag.original,
@@ -228,7 +270,7 @@ export function TimelineEditor({ studio }: { studio: StudioController }) {
       window.removeEventListener("pointerup", finish);
       window.removeEventListener("pointercancel", finish);
     };
-  }, [finishPreviewChange, previewSegments, project, seekPreview, timelineScale]);
+  }, [finishPreviewChange, previewSegments, project, seekPreview]);
 
   const timelineTime = (event: ReactPointerEvent<HTMLElement>) => {
     const bounds = event.currentTarget.getBoundingClientRect();
@@ -268,16 +310,16 @@ export function TimelineEditor({ studio }: { studio: StudioController }) {
         <div className="timeline-tools">
           <Button size="sm" variant="outline" onClick={studio.addSegment}><Plus />新增片段</Button>
           <Button size="sm" variant="outline" onClick={() => commitZoom(Math.max(1.5, (containerWidth - GUTTER) / Math.max(1, duration)))}><Maximize2 />适应窗口</Button>
-          <label className="zoom-control">缩放<Slider aria-label="时间轴缩放" min={1.5} max={120} step={0.5} value={[pixelsPerSecond]} onValueChange={([value]) => scheduleZoom(value)} onValueCommit={([value]) => commitZoom(value)} /></label>
+          <TimelineZoomControl value={pixelsPerSecond} onPreview={scheduleZoom} onCommit={commitZoom} />
         </div>
       </div>
       <div className="timeline-scroll" ref={scrollRef}>
-        <div className="timeline-canvas" style={{ width: timelineWidth + GUTTER }}>
-          <div className="ruler" style={{ width: timelineWidth }} onPointerDown={scrub}>
+        <div className="timeline-canvas">
+          <div className="ruler" onPointerDown={scrub}>
             <RulerTicks duration={duration} major={rulerMajor} />
           </div>
           <div className="track-label">保留片段</div>
-          <div className="segment-track" style={{ width: timelineWidth }} onPointerDown={scrub}>
+          <div className="segment-track" onPointerDown={scrub}>
             {studio.segments.map((segment, index) => (
               <div
                 key={segment.id ?? `${segment.start}-${index}`}
@@ -295,7 +337,7 @@ export function TimelineEditor({ studio }: { studio: StudioController }) {
             ))}
           </div>
           <div className="evidence-label"><span>模型</span><span>球路</span><span>站位</span><span>事件</span></div>
-          <div className="evidence-track" style={{ width: timelineWidth }} onPointerDown={scrub}>
+          <div className="evidence-track" onPointerDown={scrub}>
             <EvidenceItems evidence={evidence} duration={duration} />
           </div>
           <div className="playhead" ref={playheadRef}><span /></div>

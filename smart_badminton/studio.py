@@ -14,6 +14,7 @@ import uuid
 import webbrowser
 from collections.abc import Callable
 from dataclasses import dataclass, field
+from functools import lru_cache
 from importlib.resources import files
 from itertools import pairwise
 from pathlib import Path
@@ -123,6 +124,8 @@ class StudioState:
     project_lock: threading.Lock = field(default_factory=threading.Lock)
     pose_lock: threading.Lock = field(default_factory=threading.Lock)
     runtime_cache: dict[str, Any] = field(default_factory=dict)
+    payload_cache: dict[str, tuple[tuple[Any, ...], dict[str, Any]]] = field(default_factory=dict)
+    payload_cache_lock: threading.Lock = field(default_factory=threading.Lock)
 
 
 VIDEO_EXTENSIONS = {".mp4", ".mov", ".mkv", ".avi"}
@@ -142,6 +145,40 @@ POSE_ASSOCIATION_FIELDS = {
     "near_active_wrist_visible",
     "far_active_wrist_visible",
 }
+
+
+def _path_signature(paths: tuple[Path | None, ...]) -> tuple[Any, ...]:
+    signature: list[Any] = []
+    for path in paths:
+        if path is None:
+            signature.append(None)
+            continue
+        resolved = path.resolve()
+        try:
+            stat = resolved.stat()
+            signature.append((str(resolved), stat.st_mtime_ns, stat.st_size))
+        except FileNotFoundError:
+            signature.append((str(resolved), None, None))
+    return tuple(signature)
+
+
+def _cached_payload(
+    state: StudioState,
+    key: str,
+    paths: tuple[Path | None, ...],
+    builder: Callable[[], dict[str, Any]],
+) -> dict[str, Any]:
+    signature = _path_signature(paths)
+    with state.payload_cache_lock:
+        cached = state.payload_cache.get(key)
+        if cached is not None and cached[0] == signature:
+            return cached[1]
+    payload = builder()
+    with state.payload_cache_lock:
+        state.payload_cache[key] = (_path_signature(paths), payload)
+    return payload
+
+
 CALIBRATION_REGION_DEFINITIONS = {
     "active_court_polygon": {"label": "有效比赛场地", "color": "#ff4545", "required": True},
     "near_player_zone": {"label": "近场脚点区域", "color": "#6ee78f", "required": True},
@@ -653,7 +690,7 @@ def _save_calibration(state: StudioState, payload: dict[str, Any]) -> tuple[Path
     return path, backup
 
 
-def _analytics_payload(state: StudioState) -> dict[str, Any]:
+def _build_analytics_payload(state: StudioState) -> dict[str, Any]:
     library = state.library or state.video.parent
     analysis_root = _analysis_directory(library, state.video)
     features = analysis_root / "smart-features.csv"
@@ -722,6 +759,23 @@ def _analytics_payload(state: StudioState) -> dict[str, Any]:
         return cached_summary
     except (OSError, RuntimeError, ValueError, KeyError) as error:
         return {"available": False, "reason": str(error)}
+
+
+def _analytics_payload(state: StudioState) -> dict[str, Any]:
+    library = state.library or state.video.parent
+    analysis_root = _analysis_directory(library, state.video)
+    paths = (
+        state.rallies,
+        state.config,
+        analysis_root / "smart-features.csv",
+        analysis_root / "rally-probabilities.csv",
+        analysis_root / "audio-events.csv",
+        analysis_root / "shuttle-track.csv",
+        analysis_root / "rally-contacts.csv",
+        analysis_root / "rally-events.csv",
+        analysis_root / "action-summary.json",
+    )
+    return _cached_payload(state, "analytics", paths, lambda: _build_analytics_payload(state))
 
 
 def _serve_observations(state: StudioState, evidence: dict[str, Any]) -> list[dict[str, Any]]:
@@ -890,7 +944,7 @@ def _boolean_spans(times: list[float], values: Any) -> list[list[float]]:
     return spans
 
 
-def _evidence_payload(state: StudioState) -> dict[str, Any]:
+def _build_evidence_payload(state: StudioState) -> dict[str, Any]:
     analysis_root = _analysis_directory(state.library or state.video.parent, state.video)
     features_path = analysis_root / "smart-features.csv"
     probabilities_path = analysis_root / "rally-probabilities.csv"
@@ -982,6 +1036,18 @@ def _evidence_payload(state: StudioState) -> dict[str, Any]:
             "available": False,
             "reason": str(error),
         }
+
+
+def _evidence_payload(state: StudioState) -> dict[str, Any]:
+    analysis_root = _analysis_directory(state.library or state.video.parent, state.video)
+    paths = (
+        analysis_root / "smart-features.csv",
+        analysis_root / "rally-probabilities.csv",
+        analysis_root / "shuttle-track.csv",
+        analysis_root / "rally-contacts.csv",
+        analysis_root / "rally-events.csv",
+    )
+    return _cached_payload(state, "evidence", paths, lambda: _build_evidence_payload(state))
 
 
 def _shuttle_annotation_payload(state: StudioState) -> dict[str, Any]:
@@ -1136,7 +1202,7 @@ def _run_shuttle_detection(
     return results
 
 
-def _shuttle_status_payload(state: StudioState) -> dict[str, Any]:
+def _build_shuttle_status_payload(state: StudioState) -> dict[str, Any]:
     library = state.library or state.video.parent
     analysis_root = _analysis_directory(library, state.video)
     raw_path = analysis_root / "shuttle-raw.csv"
@@ -1208,6 +1274,28 @@ def _shuttle_status_payload(state: StudioState) -> dict[str, Any]:
         "tracknet_configured": bool(state.tracknet_model and state.tracknet_model.exists()),
         "inpaint_configured": bool(state.inpaint_model and state.inpaint_model.exists()),
     }
+
+
+def _shuttle_status_payload(state: StudioState) -> dict[str, Any]:
+    library = state.library or state.video.parent
+    analysis_root = _analysis_directory(library, state.video)
+    paths = (
+        state.config,
+        state.shuttle_model,
+        state.tracknet_model,
+        state.inpaint_model,
+        analysis_root / "shuttle-raw.csv",
+        analysis_root / "shuttle-track.csv",
+        analysis_root / "smart-features.csv",
+        _shuttle_annotations_path(library, state.video),
+        _shuttle_detection_metadata_path(analysis_root),
+    )
+    return _cached_payload(
+        state,
+        f"shuttle-status:{state.shuttle_mode}",
+        paths,
+        lambda: _build_shuttle_status_payload(state),
+    )
 
 
 def _set_analysis_status(studio_state: StudioState, **values: Any) -> None:
@@ -1440,18 +1528,29 @@ def _analyze_video(state: StudioState, library: Path, video: Path, index: int, t
     }
 
 
-def _video_metadata(video: Path) -> dict[str, float | int | str]:
-    capture = cv2.VideoCapture(str(video))
+@lru_cache(maxsize=32)
+def _read_video_metadata(video_path: str, mtime_ns: int, size: int) -> tuple[float | int | str, ...]:
+    del mtime_ns, size
+    capture = cv2.VideoCapture(video_path)
     if not capture.isOpened():
-        raise RuntimeError(f"Could not open video: {video}")
+        raise RuntimeError(f"Could not open video: {video_path}")
     fps = float(capture.get(cv2.CAP_PROP_FPS))
     frame_count = int(capture.get(cv2.CAP_PROP_FRAME_COUNT))
     width = int(capture.get(cv2.CAP_PROP_FRAME_WIDTH))
     height = int(capture.get(cv2.CAP_PROP_FRAME_HEIGHT))
     capture.release()
+    return Path(video_path).name, frame_count / fps, fps, frame_count, width, height
+
+
+def _video_metadata(video: Path) -> dict[str, float | int | str]:
+    resolved = video.resolve()
+    stat = resolved.stat()
+    name, duration, fps, frame_count, width, height = _read_video_metadata(
+        str(resolved), stat.st_mtime_ns, stat.st_size
+    )
     return {
-        "name": video.name,
-        "duration": frame_count / fps,
+        "name": name,
+        "duration": duration,
         "fps": fps,
         "frame_count": frame_count,
         "width": width,
