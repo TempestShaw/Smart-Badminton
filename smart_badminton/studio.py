@@ -847,6 +847,7 @@ def _score_payload(state: StudioState) -> dict[str, Any]:
             corrections,
             events,
             default_score_model_path(state.library or state.video.parent),
+            _score_label_paths(state)[2],
             analysis_root / "smart-features.csv",
             analysis_root / "rally-probabilities.csv",
             analysis_root / "shuttle-track.csv",
@@ -885,6 +886,7 @@ def _calculate_score_payload(state: StudioState, evidence: dict[str, Any] | None
             serve_observations=serve_observations,
             evidence_model_path=evidence_model_path,
             evidence_project=evidence_project,
+            machine_labels_path=_score_label_paths(state)[2],
         )
         result["serve_observations"] = serve_observations
         result.update({"available": True, "generated": True, "stale": False, "updated_at": time.time()})
@@ -1946,7 +1948,8 @@ def create_studio_app(state: StudioState):
                 state.rallies,
                 root,
                 rally_ids,
-                lambda completed, count: _set_analysis_status(
+                trajectory_csv=root.parent / "shuttle-track.csv",
+                progress_callback=lambda completed, count: _set_analysis_status(
                     state,
                     state="running",
                     stage="frames",
@@ -1988,7 +1991,11 @@ def create_studio_app(state: StudioState):
             library = state.library or video.parent
             model_payload = fit_score_evidence_model(library, default_score_model_path(library))
             _calculate_score_payload(state)
-            consensus = sum(row.get("status") == "consensus" for row in result["labels"])
+            target_rallies = set(rally_ids)
+            consensus = sum(
+                row.get("status") == "consensus" and int(row.get("rally", 0)) in target_rallies
+                for row in result["labels"]
+            )
             _set_analysis_status(
                 state,
                 state="complete",
@@ -2002,7 +2009,7 @@ def create_studio_app(state: StudioState):
                     {
                         "directory": str(root),
                         "rallies": rally_ids,
-                        "labeled": len(result["labels"]),
+                        "labeled": total,
                         "consensus": consensus,
                         "pseudo_examples": model_payload.get("pseudo_examples", 0),
                     }
@@ -2033,7 +2040,14 @@ def create_studio_app(state: StudioState):
         score = _score_payload(state)
         if not score.get("available"):
             score = _calculate_score_payload(state)
-        rally_ids = [int(row["rally"]) for row in score.get("rallies", []) if row.get("winner") == "unknown"]
+        _, _, labels_path = _score_label_paths(state)
+        review_rallies = {
+            int(row.get("rally", 0)) for row in load_machine_labels(labels_path) if row.get("status") == "review"
+        }
+        rally_ids = sorted(
+            review_rallies
+            | {int(row["rally"]) for row in score.get("rallies", []) if row.get("winner") == "unknown"}
+        )
         if not rally_ids:
             state.analysis_status = {
                 "state": "complete",
@@ -2076,7 +2090,6 @@ def create_studio_app(state: StudioState):
             label = next((row for row in load_machine_labels(labels_path) if int(row.get("rally", 0)) == rally), None)
             if label is None:
                 raise ValueError(f"No machine score label for rally {rally}")
-            score_result = _score_payload(state)
             if decision == "accepted":
                 suggestion = label.get("suggestion", {})
                 corrections_path = _score_corrections_path(library, state.video)
@@ -2101,8 +2114,8 @@ def create_studio_app(state: StudioState):
                 rows = [row for row in corrections if int(row["rally"]) != rally] + [replacement]
                 rows = validate_score_corrections(rows, len(load_rallies(state.rallies)))
                 save_score_corrections(corrections_path, rows)
-                score_result = _calculate_score_payload(state)
             save_machine_label_review(labels_path, rally, decision)
+            score_result = _calculate_score_payload(state)
             return {"score": score_result, "score_labeling": _score_labeling_payload(state)}
         except (KeyError, OSError, TypeError, ValueError) as error:
             raise HTTPException(status_code=400, detail=str(error)) from error

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import base64
+import csv
 import json
 import os
 import re
@@ -74,14 +75,50 @@ def _resize_frame(frame: Any, maximum_width: int = 960) -> Any:
     return cv2.resize(frame, (maximum_width, round(height * scale)), interpolation=cv2.INTER_AREA)
 
 
+def _trajectory_anchors(trajectory_csv: Path | None, rallies: list[tuple[float, float]]) -> dict[int, float]:
+    if trajectory_csv is None or not trajectory_csv.exists():
+        return {}
+    with trajectory_csv.open(newline="", encoding="utf-8-sig") as source:
+        rows = list(csv.DictReader(source))
+    anchors = {}
+    for rally_id, (start, end) in enumerate(rallies, 1):
+        flights: dict[str, list[tuple[float, float]]] = {}
+        for row in rows:
+            flight_id = str(row.get("flight_id", "")).strip()
+            if not flight_id:
+                continue
+            try:
+                timestamp = float(row["time_seconds"])
+                evidence = float(row.get("evidence_weight") or row.get("confidence") or 0.0)
+            except (KeyError, TypeError, ValueError):
+                continue
+            if start <= timestamp <= end + 0.35:
+                flights.setdefault(flight_id, []).append((timestamp, evidence))
+        candidates = []
+        for points in flights.values():
+            times = [point[0] for point in points]
+            duration = max(times) - min(times)
+            if len(points) < 4 or duration < 0.20:
+                continue
+            quality = len(points) * sum(point[1] for point in points) / len(points)
+            candidates.append((quality, max(times)))
+        if candidates:
+            anchor = max(candidates)[1]
+            if anchor >= start + 0.35:
+                anchors[rally_id] = min(float(end), anchor)
+    return anchors
+
+
 def prepare_score_evidence(
     video: Path,
     rallies_csv: Path,
     output_directory: Path,
     rally_ids: list[int] | None = None,
+    trajectory_csv: Path | None = None,
     progress_callback: Callable[[int, int], None] | None = None,
 ) -> dict[str, Any]:
     rallies = load_rallies(rallies_csv)
+    trajectory_anchors = _trajectory_anchors(trajectory_csv, rallies)
     selected = set(rally_ids or range(1, len(rallies) + 1))
     requested = [(index, rally) for index, rally in enumerate(rallies, 1) if index in selected]
     if not requested:
@@ -99,9 +136,10 @@ def prepare_score_evidence(
             rally_directory = output_directory / f"R{rally_id:02d}"
             rally_directory.mkdir(parents=True, exist_ok=True)
             start, end = map(float, rally)
+            anchor = trajectory_anchors.get(rally_id, end)
             frame_rows = []
             for frame_index, offset in enumerate(FRAME_OFFSETS, 1):
-                timestamp = max(start, min(duration, end + offset))
+                timestamp = max(start, min(duration, anchor + offset))
                 capture.set(cv2.CAP_PROP_POS_MSEC, timestamp * 1000.0)
                 ok, frame = capture.read()
                 if not ok:
@@ -120,6 +158,8 @@ def prepare_score_evidence(
                     "rally": rally_id,
                     "start": round(start, 3),
                     "end": round(end, 3),
+                    "anchor": round(anchor, 3),
+                    "anchor_source": "trajectory" if rally_id in trajectory_anchors else "clip_end",
                     "frames": frame_rows,
                 }
             )
@@ -296,7 +336,8 @@ def label_score_evidence(
         raise TypeError(f"Invalid evidence manifest: {manifest_path}")
     previous = _read_json(output_path, {"labels": []})
     previous_by_rally = {int(row["rally"]): row for row in previous.get("labels", []) if "rally" in row}
-    rows = []
+    selected_rallies = {int(row["rally"]) for row in manifest["rallies"]}
+    rows = [row for rally, row in previous_by_rally.items() if rally not in selected_rallies]
     rallies = manifest["rallies"]
     for completed, rally in enumerate(rallies, 1):
         rally_id = int(rally["rally"])
@@ -359,6 +400,7 @@ def label_score_evidence(
                 "generated_at": datetime.now(timezone.utc).isoformat(),
             }
         )
+        rows.sort(key=lambda row: int(row["rally"]))
         _atomic_json(
             output_path,
             {"schema_version": LABEL_SCHEMA_VERSION, "manifest": str(manifest_path), "labels": rows},

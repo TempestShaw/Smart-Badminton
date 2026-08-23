@@ -238,6 +238,7 @@ def main() -> None:
     score.add_argument("--initial-server", choices=["near", "far", "unknown"], default="unknown")
     score.add_argument("--model", type=path)
     score.add_argument("--model-project")
+    score.add_argument("--machine-labels", type=path)
     score_train = commands.add_parser("train-score-evidence")
     score_train.add_argument("--library", type=path, required=True)
     score_train.add_argument("--output", type=path)
@@ -246,6 +247,7 @@ def main() -> None:
     score_prepare.add_argument("--rallies", type=path, required=True)
     score_prepare.add_argument("--output-directory", type=path, required=True)
     score_prepare.add_argument("--rally", type=int, action="append", dest="rally_ids")
+    score_prepare.add_argument("--trajectory", type=path)
     score_label = commands.add_parser("label-score-evidence")
     score_label.add_argument("--manifest", type=path, required=True)
     score_label.add_argument("--output", type=path, required=True)
@@ -554,6 +556,7 @@ def main() -> None:
                     args.initial_server,
                     evidence_model_path=args.model,
                     evidence_project=args.model_project,
+                    machine_labels_path=args.machine_labels,
                 ),
                 ensure_ascii=False,
                 indent=2,
@@ -565,7 +568,13 @@ def main() -> None:
     elif args.command == "prepare-score-labels":
         print(
             json.dumps(
-                prepare_score_evidence(args.video, args.rallies, args.output_directory, args.rally_ids),
+                prepare_score_evidence(
+                    args.video,
+                    args.rallies,
+                    args.output_directory,
+                    args.rally_ids,
+                    args.trajectory,
+                ),
                 ensure_ascii=False,
                 indent=2,
             )

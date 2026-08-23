@@ -40,6 +40,25 @@ def test_prepare_score_evidence_extracts_chronological_terminal_frames(tmp_path:
     assert (tmp_path / "labels" / "manifest.json").exists()
 
 
+def test_prepare_score_evidence_anchors_on_the_dominant_flight(tmp_path: Path) -> None:
+    video = tmp_path / "match.mp4"
+    _video(video)
+    rallies = tmp_path / "rallies.csv"
+    rallies.write_text("rally,start_seconds,end_seconds\n1,0.2,2.2\n", encoding="utf-8")
+    trajectory = tmp_path / "track.csv"
+    trajectory.write_text(
+        "time_seconds,flight_id,evidence_weight\n"
+        "0.5,main,1\n0.8,main,1\n1.1,main,1\n1.5,main,1\n"
+        "1.8,handoff,0.2\n2.0,handoff,0.2\n2.1,handoff,0.2\n2.2,handoff,0.2\n",
+        encoding="utf-8",
+    )
+
+    manifest = prepare_score_evidence(video, rallies, tmp_path / "labels", [1], trajectory)
+
+    assert manifest["rallies"][0]["anchor"] == 1.5
+    assert manifest["rallies"][0]["anchor_source"] == "trajectory"
+
+
 def test_consensus_requires_agreement_and_confidence() -> None:
     label = validate_machine_label(
         {
@@ -120,3 +139,45 @@ def test_machine_labels_are_saved_separately_and_reviewed(tmp_path: Path) -> Non
 
     reviewed = save_machine_label_review(output, 3, "accepted")
     assert reviewed[0]["status"] == "accepted"
+
+
+def test_relabeling_preserves_rallies_outside_the_manifest(tmp_path: Path) -> None:
+    frame = tmp_path / "frame.jpg"
+    cv2.imwrite(str(frame), np.zeros((24, 24, 3), dtype=np.uint8))
+    manifest = tmp_path / "manifest.json"
+    manifest.write_text(
+        json.dumps({"rallies": [{"rally": 2, "frames": [{"time": 1.0, "path": str(frame)}]}]}),
+        encoding="utf-8",
+    )
+    output = tmp_path / "machine-score-labels.json"
+    output.write_text(
+        json.dumps({"labels": [{"rally": 1, "status": "accepted", "suggestion": {"winner": "near"}}]}),
+        encoding="utf-8",
+    )
+
+    def requester(_endpoint, _key, _payload, _timeout):
+        return {
+            "choices": [
+                {
+                    "message": {
+                        "content": json.dumps(
+                            {
+                                "terminal_event": "net",
+                                "last_hitter": "near",
+                                "landing_side": "near",
+                                "winner": "far",
+                                "post_rally_event": "none",
+                                "confidence": 0.9,
+                                "evidence_frames": [1],
+                                "reason": "net",
+                            }
+                        )
+                    }
+                }
+            ]
+        }
+
+    result = label_score_evidence(manifest, output, "vision", "https://example.test", "secret", requester=requester)
+
+    assert [row["rally"] for row in result["labels"]] == [1, 2]
+    assert result["labels"][0]["status"] == "accepted"

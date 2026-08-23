@@ -1,3 +1,4 @@
+import json
 from pathlib import Path
 
 from smart_badminton.scoring import analyze_score, calculate_score_state, evaluate_score
@@ -72,6 +73,38 @@ def test_near_court_landing_awards_far_player_without_last_hitter() -> None:
     assert rows[0]["winner"] == "far"
     assert rows[0]["far_score"] == 1
     assert rows[0]["winner_source"] == "automatic-terminal"
+
+
+def test_multimodal_consensus_resolves_unknown_but_manual_truth_wins(tmp_path: Path) -> None:
+    labels = tmp_path / "machine-score-labels.json"
+    labels.write_text(
+        json.dumps(
+            {
+                "labels": [
+                    {
+                        "rally": 1,
+                        "status": "consensus",
+                        "suggestion": {"winner": "far", "confidence": 0.91, "terminal_event": "landing_in"},
+                    }
+                ]
+            }
+        ),
+        encoding="utf-8",
+    )
+    rallies = tmp_path / "rallies.csv"
+    rallies.write_text("rally,start_seconds,end_seconds\n1,1,2\n", encoding="utf-8")
+
+    automatic = analyze_score(rallies, tmp_path / "automatic.csv", machine_labels_path=labels)
+    manual = calculate_score_state(
+        1,
+        corrections=[{"rally": 1, "winner": "near", "server_override": "unknown"}],
+        machine_suggestions=[{"rally": 1, "winner": "far", "confidence": 0.91}],
+    )
+
+    assert automatic["rallies"][0]["winner"] == "far"
+    assert automatic["rallies"][0]["winner_source"] == "automatic-multimodal"
+    assert manual[0]["winner"] == "near"
+    assert manual[0]["winner_source"] == "manual"
 
 
 def test_score_analysis_and_evaluation_are_separate_from_rally_timeline(tmp_path: Path) -> None:

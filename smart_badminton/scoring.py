@@ -37,6 +37,7 @@ SCORE_FIELDS = [
     "score_complete",
 ]
 NEXT_SERVE_CONFIDENCE_THRESHOLD = 0.72
+MULTIMODAL_CONFIDENCE_THRESHOLD = 0.82
 SIDE_VALUES = {"near", "far", "unknown"}
 TERMINAL_VALUES = {"landing_in", "landing_out", "net", "unreturned", "unknown"}
 POST_RALLY_VALUES = {"handoff", "none", "unknown"}
@@ -152,6 +153,32 @@ def save_score_corrections(path: Path, rows: list[dict[str, Any]]) -> Path | Non
     return backup
 
 
+def load_machine_score_suggestions(path: Path | None) -> list[dict[str, Any]]:
+    if path is None or not path.exists():
+        return []
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return []
+    suggestions = []
+    for row in payload.get("labels", []) if isinstance(payload, dict) else []:
+        suggestion = row.get("suggestion", {}) if isinstance(row, dict) else {}
+        if row.get("status") != "consensus" or not isinstance(suggestion, dict):
+            continue
+        winner = str(suggestion.get("winner", "unknown"))
+        confidence = float(suggestion.get("confidence", 0.0))
+        if winner in {"near", "far"} and confidence >= MULTIMODAL_CONFIDENCE_THRESHOLD:
+            suggestions.append(
+                {
+                    "rally": int(row["rally"]),
+                    "winner": winner,
+                    "confidence": confidence,
+                    "terminal_event": str(suggestion.get("terminal_event", "unknown")),
+                }
+            )
+    return suggestions
+
+
 def _automatic_winner(
     event: dict[str, str] | None,
     evidence_model: dict[str, Any] | None = None,
@@ -195,10 +222,12 @@ def calculate_score_state(
     allow_next_serve: bool = True,
     evidence_model: dict[str, Any] | None = None,
     evidence_project: str | None = None,
+    machine_suggestions: list[dict[str, Any]] | None = None,
 ) -> list[dict[str, Any]]:
     event_map = {int(row["rally"]): row for row in events or []}
     correction_map = {int(row["rally"]): row for row in corrections or []}
     serve_map = {int(row["rally"]): row for row in serve_observations or []}
+    machine_map = {int(row["rally"]): row for row in machine_suggestions or []}
     near_score = far_score = near_games = far_games = 0
     first_observed_server = serve_map.get(1, {}).get("server", "unknown")
     server = initial_server if initial_server in {"near", "far"} else str(first_observed_server)
@@ -209,6 +238,12 @@ def calculate_score_state(
     for rally in range(1, rally_count + 1):
         winner, confidence, note = _automatic_winner(event_map.get(rally), evidence_model, evidence_project)
         source = "automatic-terminal" if winner in {"near", "far"} else "unresolved"
+        machine = machine_map.get(rally)
+        if winner == "unknown" and machine:
+            winner = str(machine["winner"])
+            confidence = float(machine["confidence"])
+            source = "automatic-multimodal"
+            note = f"multimodal consensus: {machine.get('terminal_event', 'unknown')}"
         next_serve = serve_map.get(rally + 1)
         if winner == "unknown" and next_serve and allow_next_serve:
             next_server = str(next_serve.get("server", "unknown"))
@@ -274,11 +309,13 @@ def analyze_score(
     serve_observations: list[dict[str, Any]] | None = None,
     evidence_model_path: Path | None = None,
     evidence_project: str | None = None,
+    machine_labels_path: Path | None = None,
 ) -> dict[str, Any]:
     rallies = load_rallies(rallies_csv)
     events = read_rows(events_csv) if events_csv is not None and events_csv.exists() else []
     corrections = load_score_corrections(corrections_csv)
     evidence_model = load_score_evidence_model(evidence_model_path)
+    machine_suggestions = load_machine_score_suggestions(machine_labels_path)
     next_serve_calibration = _next_serve_calibration(corrections, serve_observations or [])
     rows = calculate_score_state(
         len(rallies),
@@ -289,6 +326,7 @@ def analyze_score(
         bool(next_serve_calibration["enabled"]),
         evidence_model,
         evidence_project,
+        machine_suggestions,
     )
     write_rows(output_csv, SCORE_FIELDS, rows)
     summary = {
@@ -310,7 +348,7 @@ def analyze_score(
             "local_disabled_rules": evidence_model.get("local_disabled_rules", 0) if evidence_model else 0,
             "project": evidence_project,
         },
-        "method": "terminal event or next rally's visually detected formal server",
+        "method": "terminal event, multimodal consensus, or next rally's visually detected formal server",
         "disclaimer": (
             "Automatic points require independent visual evidence. Unresolved rallies are not counted, so a partial "
             "score is never presented as official. Manual review remains independent of editing."
