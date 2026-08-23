@@ -32,10 +32,14 @@ def score_labeling_directory(project_root: Path) -> Path:
 def score_labeling_config() -> dict[str, Any]:
     api_key = os.environ.get("SMART_BADMINTON_VLM_API_KEY") or os.environ.get("OPENAI_API_KEY")
     model = os.environ.get("SMART_BADMINTON_VLM_MODEL", "").strip()
+    models = [value.strip() for value in os.environ.get("SMART_BADMINTON_VLM_MODELS", "").split(",") if value.strip()]
+    if not models and model:
+        models = [model]
     endpoint = os.environ.get("SMART_BADMINTON_VLM_ENDPOINT", DEFAULT_ENDPOINT).strip()
     return {
-        "configured": bool(api_key and model and endpoint),
-        "model": model or None,
+        "configured": bool(api_key and models and endpoint),
+        "model": ", ".join(models) or None,
+        "models": models,
         "endpoint": endpoint,
         "api_key": api_key,
     }
@@ -228,13 +232,25 @@ def validate_machine_label(payload: dict[str, Any]) -> dict[str, Any]:
             evidence_frames.append(int(value))
         except (TypeError, ValueError):
             continue
+    confidence = max(0.0, min(1.0, float(payload.get("confidence", 0.0))))
+    expected_winner = "unknown"
+    if terminal_event == "landing_in" and landing_side in {"near", "far"}:
+        expected_winner = "far" if landing_side == "near" else "near"
+    elif terminal_event in {"landing_out", "net"} and last_hitter in {"near", "far"}:
+        expected_winner = "far" if last_hitter == "near" else "near"
+    elif terminal_event == "unreturned" and last_hitter in {"near", "far"}:
+        expected_winner = last_hitter
+    if expected_winner != "unknown":
+        if winner not in {"unknown", expected_winner}:
+            confidence = max(0.0, confidence - 0.12)
+        winner = expected_winner
     return {
         "terminal_event": terminal_event,
         "last_hitter": last_hitter,
         "landing_side": landing_side,
         "winner": winner,
         "post_rally_event": post_rally_event,
-        "confidence": round(max(0.0, min(1.0, float(payload.get("confidence", 0.0)))), 3),
+        "confidence": round(confidence, 3),
         "evidence_frames": sorted(set(evidence_frames)),
         "reason": str(payload.get("reason", ""))[:160],
     }
@@ -260,7 +276,7 @@ def consensus_label(labels: list[dict[str, Any]], confidence_threshold: float = 
 def label_score_evidence(
     manifest_path: Path,
     output_path: Path,
-    model: str,
+    model: str | list[str],
     endpoint: str,
     api_key: str,
     passes: int = 2,
@@ -270,7 +286,8 @@ def label_score_evidence(
 ) -> dict[str, Any]:
     if not api_key:
         raise ValueError("Set SMART_BADMINTON_VLM_API_KEY or OPENAI_API_KEY")
-    if not model:
+    models = [value.strip() for value in ([model] if isinstance(model, str) else model) if value.strip()]
+    if not models:
         raise ValueError("Set SMART_BADMINTON_VLM_MODEL")
     if passes < 1:
         raise ValueError("passes must be at least 1")
@@ -284,15 +301,52 @@ def label_score_evidence(
     for completed, rally in enumerate(rallies, 1):
         rally_id = int(rally["rally"])
         responses = []
-        for pass_index in range(passes):
+        request_count = max(passes, len(models))
+        for pass_index in range(request_count):
+            request_model = models[pass_index % len(models)]
             request_payload = {
-                "model": model,
-                "temperature": 0.0 if pass_index == 0 else 0.15,
+                "model": request_model,
                 "messages": [{"role": "user", "content": _prompt(rally)}],
-                "response_format": {"type": "json_object"},
+                "max_tokens": 600,
+                "provider": {"require_parameters": True},
+                "response_format": {
+                    "type": "json_schema",
+                    "json_schema": {
+                        "name": "badminton_terminal_event",
+                        "strict": True,
+                        "schema": {
+                            "type": "object",
+                            "properties": {
+                                "terminal_event": {"type": "string", "enum": sorted(TERMINAL_EVENTS)},
+                                "last_hitter": {"type": "string", "enum": sorted(SIDES)},
+                                "landing_side": {"type": "string", "enum": sorted(SIDES)},
+                                "winner": {"type": "string", "enum": sorted(WINNERS)},
+                                "post_rally_event": {"type": "string", "enum": sorted(POST_RALLY_EVENTS)},
+                                "confidence": {"type": "number", "minimum": 0, "maximum": 1},
+                                "evidence_frames": {"type": "array", "items": {"type": "integer"}},
+                                "reason": {"type": "string"},
+                            },
+                            "required": [
+                                "terminal_event",
+                                "last_hitter",
+                                "landing_side",
+                                "winner",
+                                "post_rally_event",
+                                "confidence",
+                                "evidence_frames",
+                                "reason",
+                            ],
+                            "additionalProperties": False,
+                        },
+                    },
+                },
             }
+            if request_model.startswith("openai/"):
+                request_payload["reasoning"] = {"effort": "none", "exclude": True}
             response = requester(endpoint, api_key, request_payload, timeout)
-            responses.append(validate_machine_label(_parse_json_object(_response_text(response))))
+            parsed = validate_machine_label(_parse_json_object(_response_text(response)))
+            parsed["model"] = request_model
+            responses.append(parsed)
         status, suggestion = consensus_label(responses)
         prior = previous_by_rally.get(rally_id, {})
         rows.append(
@@ -301,7 +355,7 @@ def label_score_evidence(
                 "status": prior.get("status") if prior.get("status") in {"accepted", "rejected"} else status,
                 "suggestion": suggestion,
                 "passes": responses,
-                "model": model,
+                "model": ", ".join(models),
                 "generated_at": datetime.now(timezone.utc).isoformat(),
             }
         )

@@ -61,6 +61,22 @@ def test_consensus_requires_agreement_and_confidence() -> None:
     assert suggestion["winner"] == "unknown"
 
 
+def test_terminal_geometry_corrects_an_inconsistent_reported_winner() -> None:
+    label = validate_machine_label(
+        {
+            "terminal_event": "landing_in",
+            "last_hitter": "far",
+            "landing_side": "near",
+            "winner": "near",
+            "post_rally_event": "none",
+            "confidence": 0.9,
+        }
+    )
+
+    assert label["winner"] == "far"
+    assert label["confidence"] == 0.78
+
+
 def test_machine_labels_are_saved_separately_and_reviewed(tmp_path: Path) -> None:
     frame = tmp_path / "frame.jpg"
     cv2.imwrite(str(frame), np.zeros((24, 24, 3), dtype=np.uint8))

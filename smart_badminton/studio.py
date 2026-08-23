@@ -1972,7 +1972,7 @@ def create_studio_app(state: StudioState):
             result = label_score_evidence(
                 manifest_path,
                 labels_path,
-                str(config["model"]),
+                list(config["models"]),
                 str(config["endpoint"]),
                 str(config["api_key"]),
                 progress_callback=lambda completed, count: _set_analysis_status(

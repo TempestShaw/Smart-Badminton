@@ -577,7 +577,7 @@ def main() -> None:
                 label_score_evidence(
                     args.manifest,
                     args.output,
-                    args.model or str(config.get("model") or ""),
+                    args.model or list(config.get("models") or []),
                     args.endpoint or str(config.get("endpoint") or ""),
                     str(config.get("api_key") or ""),
                     args.passes,
