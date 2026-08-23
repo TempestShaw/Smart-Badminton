@@ -9,8 +9,19 @@ from pathlib import Path
 from typing import Any
 
 from .io import load_rallies, read_rows, write_rows
+from .score_learning import evidence_rule, load_score_evidence_model, raw_terminal_prediction
 
-CORRECTION_FIELDS = ["rally", "winner", "server_override", "note"]
+CORRECTION_FIELDS = [
+    "rally",
+    "winner",
+    "server_override",
+    "server",
+    "last_hitter",
+    "terminal_event",
+    "landing_side",
+    "post_rally_event",
+    "note",
+]
 SCORE_FIELDS = [
     "rally",
     "winner",
@@ -26,6 +37,9 @@ SCORE_FIELDS = [
     "score_complete",
 ]
 NEXT_SERVE_CONFIDENCE_THRESHOLD = 0.72
+SIDE_VALUES = {"near", "far", "unknown"}
+TERMINAL_VALUES = {"landing_in", "landing_out", "net", "unreturned", "unknown"}
+POST_RALLY_VALUES = {"handoff", "none", "unknown"}
 
 
 def _next_serve_calibration(
@@ -58,6 +72,11 @@ def load_score_corrections(path: Path | None) -> list[dict[str, Any]]:
             "rally": int(row["rally"]),
             "winner": str(row.get("winner", "auto")),
             "server_override": str(row.get("server_override", "unknown")),
+            "server": str(row.get("server", "unknown")),
+            "last_hitter": str(row.get("last_hitter", "unknown")),
+            "terminal_event": str(row.get("terminal_event", "unknown")),
+            "landing_side": str(row.get("landing_side", "unknown")),
+            "post_rally_event": str(row.get("post_rally_event", "unknown")),
             "note": str(row.get("note", "")),
         }
         for row in read_rows(path)
@@ -75,20 +94,40 @@ def validate_score_corrections(payload: Any, rally_count: int) -> list[dict[str,
         rally = int(item["rally"])
         winner = str(item.get("winner", "auto"))
         server = str(item.get("server_override", "unknown"))
+        rally_server = str(item.get("server", "unknown"))
+        last_hitter = str(item.get("last_hitter", "unknown"))
+        terminal_event = str(item.get("terminal_event", "unknown"))
+        landing_side = str(item.get("landing_side", "unknown"))
+        post_rally_event = str(item.get("post_rally_event", "unknown"))
         if not 1 <= rally <= rally_count:
             raise ValueError(f"score correction {index} rally is outside the timeline")
         if rally in seen:
             raise ValueError(f"score correction for rally {rally} is duplicated")
         if winner not in {"near", "far", "no_point", "auto"}:
             raise ValueError(f"score correction {index} winner is invalid")
-        if server not in {"near", "far", "unknown"}:
+        if server not in SIDE_VALUES:
             raise ValueError(f"score correction {index} server override is invalid")
+        if rally_server not in SIDE_VALUES:
+            raise ValueError(f"score correction {index} server is invalid")
+        if last_hitter not in SIDE_VALUES:
+            raise ValueError(f"score correction {index} last hitter is invalid")
+        if terminal_event not in TERMINAL_VALUES:
+            raise ValueError(f"score correction {index} terminal event is invalid")
+        if landing_side not in SIDE_VALUES:
+            raise ValueError(f"score correction {index} landing side is invalid")
+        if post_rally_event not in POST_RALLY_VALUES:
+            raise ValueError(f"score correction {index} post-rally event is invalid")
         seen.add(rally)
         result.append(
             {
                 "rally": rally,
                 "winner": winner,
                 "server_override": server,
+                "server": rally_server,
+                "last_hitter": last_hitter,
+                "terminal_event": terminal_event,
+                "landing_side": landing_side,
+                "post_rally_event": post_rally_event,
                 "note": str(item.get("note", ""))[:240],
             }
         )
@@ -113,29 +152,34 @@ def save_score_corrections(path: Path, rows: list[dict[str, Any]]) -> Path | Non
     return backup
 
 
-def _automatic_winner(event: dict[str, str] | None) -> tuple[str, float, str]:
-    if not event or event.get("score_usable") != "yes":
-        return "unknown", 0.0, "terminal event is not score-safe"
+def _automatic_winner(
+    event: dict[str, str] | None,
+    evidence_model: dict[str, Any] | None = None,
+    evidence_project: str | None = None,
+) -> tuple[str, float, str]:
+    predicted, rule_key = raw_terminal_prediction(event)
+    if event is None or predicted == "unknown" or rule_key is None:
+        return "unknown", 0.0, "terminal event does not determine a winner"
     confidence = float(event.get("confidence", 0.0))
-    if confidence < 0.75:
-        return "unknown", confidence, "terminal event confidence is below 0.75"
-    event_name = str(event.get("event", "unknown")).replace("_candidate", "")
+    rule = evidence_rule(evidence_model, rule_key, evidence_project)
+    if rule and rule.get("status") == "disabled":
+        return "unknown", confidence, f"manual evidence disabled {rule_key}"
+    default_safe = event.get("score_usable") == "yes" and confidence >= 0.75
+    learned_safe = bool(
+        rule
+        and rule.get("status") == "trusted"
+        and confidence >= float(rule.get("confidence_floor", 0.75))
+    )
+    if not default_safe and not learned_safe:
+        return "unknown", confidence, "terminal event is not score-safe"
+    event_name, subject = rule_key.split(":", 1)
     if event_name == "landing_in":
-        landing_side = str(event.get("landing_side", "unknown"))
-        if landing_side in {"near", "far"}:
-            return (
-                "far" if landing_side == "near" else "near",
-                confidence,
-                f"shuttle landed in {landing_side} court",
-            )
-    hitter = str(event.get("last_hitter", "unknown"))
-    if hitter not in {"near", "far"}:
-        return "unknown", confidence, "last hitter is unknown"
-    if event_name == "landing_in":
-        return hitter, confidence, "score-safe in landing by last hitter"
-    if event_name in {"landing_out", "net"}:
-        return ("far" if hitter == "near" else "near"), confidence, f"score-safe {event_name} fault"
-    return "unknown", confidence, "event type does not determine a winner"
+        note = f"shuttle landed in {subject} court"
+    else:
+        note = f"{subject} player made a {event_name} fault"
+    if learned_safe and not default_safe:
+        note = f"learned evidence: {note}"
+    return predicted, confidence, note
 
 
 def _game_won(score: int, opponent: int) -> bool:
@@ -149,6 +193,8 @@ def calculate_score_state(
     initial_server: str = "unknown",
     serve_observations: list[dict[str, Any]] | None = None,
     allow_next_serve: bool = True,
+    evidence_model: dict[str, Any] | None = None,
+    evidence_project: str | None = None,
 ) -> list[dict[str, Any]]:
     event_map = {int(row["rally"]): row for row in events or []}
     correction_map = {int(row["rally"]): row for row in corrections or []}
@@ -161,7 +207,7 @@ def calculate_score_state(
     unresolved_before = 0
     results = []
     for rally in range(1, rally_count + 1):
-        winner, confidence, note = _automatic_winner(event_map.get(rally))
+        winner, confidence, note = _automatic_winner(event_map.get(rally), evidence_model, evidence_project)
         source = "automatic-terminal" if winner in {"near", "far"} else "unresolved"
         next_serve = serve_map.get(rally + 1)
         if winner == "unknown" and next_serve and allow_next_serve:
@@ -226,10 +272,13 @@ def analyze_score(
     summary_json: Path | None = None,
     initial_server: str = "unknown",
     serve_observations: list[dict[str, Any]] | None = None,
+    evidence_model_path: Path | None = None,
+    evidence_project: str | None = None,
 ) -> dict[str, Any]:
     rallies = load_rallies(rallies_csv)
     events = read_rows(events_csv) if events_csv is not None and events_csv.exists() else []
     corrections = load_score_corrections(corrections_csv)
+    evidence_model = load_score_evidence_model(evidence_model_path)
     next_serve_calibration = _next_serve_calibration(corrections, serve_observations or [])
     rows = calculate_score_state(
         len(rallies),
@@ -238,6 +287,8 @@ def analyze_score(
         initial_server,
         serve_observations,
         bool(next_serve_calibration["enabled"]),
+        evidence_model,
+        evidence_project,
     )
     write_rows(output_csv, SCORE_FIELDS, rows)
     summary = {
@@ -250,6 +301,15 @@ def analyze_score(
         "automatic": sum(str(row["winner_source"]).startswith("automatic") for row in rows),
         "complete": all(bool(row["score_complete"]) for row in rows),
         "next_serve_calibration": next_serve_calibration,
+        "evidence_model": {
+            "available": evidence_model is not None,
+            "version": evidence_model.get("version") if evidence_model else None,
+            "manual_examples": evidence_model.get("manual_examples", 0) if evidence_model else 0,
+            "trusted_rules": evidence_model.get("trusted_rules", 0) if evidence_model else 0,
+            "disabled_rules": evidence_model.get("disabled_rules", 0) if evidence_model else 0,
+            "local_disabled_rules": evidence_model.get("local_disabled_rules", 0) if evidence_model else 0,
+            "project": evidence_project,
+        },
         "method": "terminal event or next rally's visually detected formal server",
         "disclaimer": (
             "Automatic points require independent visual evidence. Unresolved rallies are not counted, so a partial "

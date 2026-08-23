@@ -81,6 +81,11 @@ export interface ScoreCorrection {
   rally: number;
   winner: "near" | "far" | "no_point" | "auto";
   server_override: "near" | "far" | "unknown";
+  server: "near" | "far" | "unknown";
+  last_hitter: "near" | "far" | "unknown";
+  terminal_event: "landing_in" | "landing_out" | "net" | "unreturned" | "unknown";
+  landing_side: "near" | "far" | "unknown";
+  post_rally_event: "handoff" | "none" | "unknown";
   note: string;
 }
 
@@ -98,6 +103,15 @@ export interface ScorePayload {
   complete?: boolean;
   method?: string;
   disclaimer?: string;
+  evidence_model?: {
+    available: boolean;
+    version: number | null;
+    manual_examples: number;
+    trusted_rules: number;
+    disabled_rules: number;
+    local_disabled_rules: number;
+    project: string | null;
+  };
   updated_at?: number;
   serve_observations?: { rally: number; time: number; server: "near" | "far"; confidence: number }[];
 }

@@ -20,6 +20,7 @@ from .model import MODEL_FAMILIES, benchmark_multi_models, predict_model, train_
 from .regression import regression_gate, train_guarded_candidate
 from .render import render_rallies
 from .review import render_boundary_reviews
+from .score_learning import default_score_model_path, fit_score_evidence_model
 from .scoring import analyze_score, evaluate_score
 from .segmenter import segment_rallies
 from .shuttle import detect_shuttle
@@ -234,6 +235,11 @@ def main() -> None:
     score.add_argument("--output", type=path, required=True)
     score.add_argument("--summary", type=path)
     score.add_argument("--initial-server", choices=["near", "far", "unknown"], default="unknown")
+    score.add_argument("--model", type=path)
+    score.add_argument("--model-project")
+    score_train = commands.add_parser("train-score-evidence")
+    score_train.add_argument("--library", type=path, required=True)
+    score_train.add_argument("--output", type=path)
     score_eval = commands.add_parser("evaluate-score")
     score_eval.add_argument("--predicted", type=path, required=True)
     score_eval.add_argument("--truth", type=path, required=True)
@@ -534,11 +540,16 @@ def main() -> None:
                     args.corrections,
                     args.summary,
                     args.initial_server,
+                    evidence_model_path=args.model,
+                    evidence_project=args.model_project,
                 ),
                 ensure_ascii=False,
                 indent=2,
             )
         )
+    elif args.command == "train-score-evidence":
+        output = args.output or default_score_model_path(args.library)
+        print(json.dumps(fit_score_evidence_model(args.library, output), ensure_ascii=False, indent=2))
     elif args.command == "evaluate-score":
         print(json.dumps(evaluate_score(args.predicted, args.truth, args.output), indent=2))
     elif args.command == "render":

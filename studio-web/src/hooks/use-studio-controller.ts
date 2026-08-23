@@ -28,7 +28,7 @@ interface TimelineSaveResponse {
   score: ScorePayload;
 }
 
-const API_SCHEMA_VERSION = 6;
+const API_SCHEMA_VERSION = 7;
 
 function sameTimeline(first: Segment[], second: Segment[]): boolean {
   return first.length === second.length && first.every((segment, index) => {
@@ -310,7 +310,7 @@ export function useStudioController() {
   );
 
   const updateScore = useCallback(
-    async (values: Partial<Pick<ScoreCorrection, "winner" | "server_override">>) => {
+    async (values: Partial<Omit<ScoreCorrection, "rally" | "note">>) => {
       if (!project || selectedIndex < 0) return;
       const rally = selectedIndex + 1;
       if (dirty || !(score.rallies ?? []).some((row) => row.rally === rally)) {
@@ -321,11 +321,24 @@ export function useStudioController() {
         rally,
         winner: "auto" as const,
         server_override: "unknown" as const,
+        server: "unknown" as const,
+        last_hitter: "unknown" as const,
+        terminal_event: "unknown" as const,
+        landing_side: "unknown" as const,
+        post_rally_event: "unknown" as const,
         note: "studio",
       };
       const replacement = { ...current, ...values, rally };
       const corrections = (score.corrections ?? []).filter((row) => row.rally !== rally);
-      if (replacement.winner !== "auto" || replacement.server_override !== "unknown") corrections.push(replacement);
+      if (
+        replacement.winner !== "auto"
+        || replacement.server_override !== "unknown"
+        || replacement.server !== "unknown"
+        || replacement.last_hitter !== "unknown"
+        || replacement.terminal_event !== "unknown"
+        || replacement.landing_side !== "unknown"
+        || replacement.post_rally_event !== "unknown"
+      ) corrections.push(replacement);
       corrections.sort((first, second) => first.rally - second.rally);
       try {
         const payload = await apiRequest<ScorePayload>("/api/score", {

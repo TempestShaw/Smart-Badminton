@@ -130,7 +130,7 @@ def test_studio_directory_browser_and_output_selection_are_real(tmp_path: Path, 
     assert changed.json()["directory_exists"] is True
     assert changed.json()["file_exists"] is False
     project = client.get("/api/project").json()
-    assert project["api_schema_version"] == 6
+    assert project["api_schema_version"] == 7
     assert project["output"]["filename"] == "match-final.mp4"
 
     invalid_name = client.put(
@@ -193,7 +193,7 @@ def test_studio_reports_missing_ffmpeg_and_rejects_video_jobs(tmp_path: Path, mo
 
     health = client.get("/api/health")
     assert health.status_code == 200
-    assert health.json()["api_schema_version"] == 6
+    assert health.json()["api_schema_version"] == 7
     assert health.json()["runtime"]["ffmpeg"]["available"] is False
     project = client.get("/api/project").json()
     assert project["runtime"]["ffmpeg"]["reason"] == "FFmpeg unavailable in test"
@@ -370,13 +370,27 @@ def test_studio_score_correction_does_not_mutate_timeline(tmp_path: Path, monkey
         "/api/score",
         json={
             "project_id": "source.mp4",
-            "corrections": [{"rally": 1, "winner": "near", "server_override": "near", "note": "reviewed"}],
+            "corrections": [
+                {
+                    "rally": 1,
+                    "winner": "near",
+                    "server_override": "near",
+                    "server": "far",
+                    "last_hitter": "near",
+                    "terminal_event": "landing_in",
+                    "landing_side": "far",
+                    "post_rally_event": "handoff",
+                    "note": "reviewed",
+                }
+            ],
         },
     )
 
     assert response.status_code == 200
     assert response.json()["rallies"][0]["near_score"] == 1
     assert response.json()["rallies"][0]["server_next"] == "near"
+    assert response.json()["corrections"][0]["terminal_event"] == "landing_in"
+    assert response.json()["corrections"][0]["post_rally_event"] == "handoff"
     assert timeline.read_text(encoding="utf-8") == original
     stale = client.put("/api/score", json={"project_id": "other.mp4", "corrections": []})
     assert stale.status_code == 409

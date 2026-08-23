@@ -42,6 +42,7 @@ from .phase_examples import capture_phase_examples
 from .pose_overlay import render_pose_overlay
 from .rally_evidence import build_rally_evidence
 from .render import render_rallies
+from .score_learning import default_score_model_path, fit_score_evidence_model
 from .scoring import (
     analyze_score,
     save_score_corrections,
@@ -116,7 +117,7 @@ class StudioState:
 
 
 VIDEO_EXTENSIONS = {".mp4", ".mov", ".mkv", ".avi"}
-API_SCHEMA_VERSION = 6
+API_SCHEMA_VERSION = 7
 EVIDENCE_SCHEMA_VERSION = 1
 VISIBLE_SHUTTLE_STATUSES = {"tracked", "recovered", "competing", "manual"}
 SHUTTLE_MODES = {"yolo", "tracknet", "hybrid"}
@@ -801,6 +802,7 @@ def _score_payload(state: StudioState) -> dict[str, Any]:
         for path in (
             corrections,
             events,
+            default_score_model_path(state.library or state.video.parent),
             analysis_root / "smart-features.csv",
             analysis_root / "rally-probabilities.csv",
             analysis_root / "shuttle-track.csv",
@@ -821,6 +823,13 @@ def _calculate_score_payload(state: StudioState, evidence: dict[str, Any] | None
         return {"available": False, "generated": False, "stale": False, "reason": "请先完成剪辑时间表"}
     corrections, events, output, summary = _score_paths(state)
     try:
+        library = state.library or state.video.parent
+        evidence_model_path = default_score_model_path(library)
+        fit_score_evidence_model(library, evidence_model_path)
+        project_root = _project_root(library, state.video)
+        evidence_project = (
+            str(project_root.relative_to(library)).replace("\\", "/") if project_root != library else state.video.stem
+        )
         evidence_payload = evidence if evidence is not None else _evidence_payload(state)
         serve_observations = _serve_observations(state, evidence_payload)
         result = analyze_score(
@@ -830,6 +839,8 @@ def _calculate_score_payload(state: StudioState, evidence: dict[str, Any] | None
             corrections if corrections.exists() else None,
             summary,
             serve_observations=serve_observations,
+            evidence_model_path=evidence_model_path,
+            evidence_project=evidence_project,
         )
         result["serve_observations"] = serve_observations
         result.update({"available": True, "generated": True, "stale": False, "updated_at": time.time()})

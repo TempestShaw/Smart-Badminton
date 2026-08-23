@@ -59,6 +59,7 @@ Status: `[x]` complete, `[~]` implemented but awaiting broader video validation,
 - [x] Label partial score coverage honestly in Studio instead of presenting unresolved rallies as zero points.
 - [x] Evaluate scoring separately from editing; uncertain events never change a cut automatically.
 - [x] Disable next-server scoring for a video when manual results expose a camera-side bias.
+- [x] Calibrate terminal scoring rules from structured manual outcomes without mutating reviewed timelines.
 
 ## P2 - Action and entertainment features
 

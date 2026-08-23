@@ -186,7 +186,8 @@ Detection and trajectory CSVs include the pixel coordinate dimensions used by YO
 smart-badminton analyze-contacts --features output/features.csv --rallies output/rallies.csv --output output/contacts.csv --summary output/contact-summary.json
 smart-badminton analyze-events --video input.mp4 --config camera.json --rallies output/rallies.csv --trajectory output/shuttle-track.csv --contacts output/contacts.csv --output output/events.csv --summary output/event-summary.json
 smart-badminton analyze-actions --features output/features.csv --rallies output/rallies.csv --contacts output/contacts.csv --events output/events.csv --trajectory output/shuttle-track.csv --config camera.json --output output/actions.csv --summary output/action-summary.json
-smart-badminton analyze-score --rallies output/rallies.csv --events output/events.csv --corrections output/score-corrections.csv --output output/score.csv --summary output/score-summary.json
+smart-badminton train-score-evidence --library matches
+smart-badminton analyze-score --rallies output/rallies.csv --events output/events.csv --corrections output/score-corrections.csv --model matches/.smart-badminton/models/score-evidence-v2.json --output output/score.csv --summary output/score-summary.json
 ```
 
 Launch Studio with the detector paths, then choose the mode under **场地与轨迹**:

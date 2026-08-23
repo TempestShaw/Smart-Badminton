@@ -122,7 +122,6 @@ function ScoreCard({ studio, score, correction }: { studio: StudioController; sc
   const serverLabels = { near: "近场", far: "远场", unknown: "未知" };
   const evidenceCurrent = !studio.dirty && studio.score.available && Boolean(score);
   const button = (winner: ScoreCorrection["winner"], label: string) => <Button disabled={!evidenceCurrent} size="xs" variant={(correction?.winner ?? "auto") === winner ? "default" : "outline"} onClick={() => void studio.updateScore({ winner })}>{label}</Button>;
-  const server = (value: ScoreCorrection["server_override"], label: string) => <Button disabled={!evidenceCurrent} size="xs" variant={correction?.server_override === value ? "default" : "outline"} onClick={() => void studio.updateScore({ server_override: value })}>{label}</Button>;
   const sourceLabel = studio.scoreCalculating
     ? "计算中"
     : studio.dirty
@@ -145,8 +144,27 @@ function ScoreCard({ studio, score, correction }: { studio: StudioController; sc
         </div>
       </div>
       <div className="score-line"><span>近场</span><strong>{evidenceCurrent ? score?.near_score ?? 0 : "—"}</strong><em>:</em><strong>{evidenceCurrent ? score?.far_score ?? 0 : "—"}</strong><span>远场</span></div>
-      <p>发球：{evidenceCurrent ? serverLabels[score?.server_next ?? "unknown"] : "—"}</p>
-      <div className="score-actions">{button("near", "近场得分")}{button("far", "远场得分")}{button("no_point", "本分无效")}{button("auto", "恢复自动")}{server("near", "近场发球")}{server("far", "远场发球")}{server("unknown", "清除发球方")}</div>
+      <p>下分发球：{evidenceCurrent ? serverLabels[score?.server_next ?? "unknown"] : "—"}</p>
+      <div className="score-actions">{button("near", "近场得分")}{button("far", "远场得分")}{button("no_point", "本分无效")}{button("auto", "恢复自动")}</div>
+      <details className="outcome-editor">
+        <summary>标注依据</summary>
+        <div className="outcome-fields">
+          <OutcomeSelect label="本分发球" value={correction?.server ?? "unknown"} disabled={!evidenceCurrent} options={sideOptions} onChange={(server) => void studio.updateScore({ server: server as ScoreCorrection["server"] })} />
+          <OutcomeSelect label="最后击球" value={correction?.last_hitter ?? "unknown"} disabled={!evidenceCurrent} options={sideOptions} onChange={(last_hitter) => void studio.updateScore({ last_hitter: last_hitter as ScoreCorrection["last_hitter"] })} />
+          <OutcomeSelect label="终局" value={correction?.terminal_event ?? "unknown"} disabled={!evidenceCurrent} options={terminalOptions} onChange={(terminal_event) => void studio.updateScore({ terminal_event: terminal_event as ScoreCorrection["terminal_event"] })} />
+          <OutcomeSelect label="落点" value={correction?.landing_side ?? "unknown"} disabled={!evidenceCurrent} options={sideOptions} onChange={(landing_side) => void studio.updateScore({ landing_side: landing_side as ScoreCorrection["landing_side"] })} />
+          <OutcomeSelect label="回合后" value={correction?.post_rally_event ?? "unknown"} disabled={!evidenceCurrent} options={postRallyOptions} onChange={(post_rally_event) => void studio.updateScore({ post_rally_event: post_rally_event as ScoreCorrection["post_rally_event"] })} />
+          <OutcomeSelect label="下分发球" value={correction?.server_override ?? "unknown"} disabled={!evidenceCurrent} options={sideOptions} onChange={(server_override) => void studio.updateScore({ server_override: server_override as ScoreCorrection["server_override"] })} />
+        </div>
+      </details>
     </section>
   );
+}
+
+const sideOptions = [["unknown", "未知"], ["near", "近场"], ["far", "远场"]] as const;
+const terminalOptions = [["unknown", "未知"], ["landing_in", "界内落地"], ["landing_out", "出界"], ["net", "下网"], ["unreturned", "未回击"]] as const;
+const postRallyOptions = [["unknown", "未知"], ["none", "无"], ["handoff", "送球"]] as const;
+
+function OutcomeSelect({ label, value, options, disabled, onChange }: { label: string; value: string; options: ReadonlyArray<readonly [string, string]>; disabled: boolean; onChange: (value: string) => void }) {
+  return <label>{label}<select value={value} disabled={disabled} onChange={(event) => onChange(event.target.value)}>{options.map(([option, text]) => <option key={option} value={option}>{text}</option>)}</select></label>;
 }

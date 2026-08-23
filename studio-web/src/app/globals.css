@@ -226,9 +226,14 @@ button[data-variant="default"] { color: var(--primary-foreground); }
 .score-line em { color: #617786; font-style: normal; }
 .score-line span { color: #9eb0bb; font-size: 9px; }
 .score-card p, .score-card small { display: block; margin: 4px 0 0; color: #7f929e; font-size: 8px; }
-.score-actions { display: grid; grid-template-columns: repeat(3, 1fr); gap: 4px; margin-top: 8px; }
+.score-actions { display: grid; grid-template-columns: repeat(2, 1fr); gap: 4px; margin-top: 8px; }
 .score-actions button { min-height: 27px; color: #b9cfdb; border: 1px solid #334c5c; border-radius: 5px; background: #101c23; cursor: pointer; font-size: 8px; }
 .score-actions button.active { color: #071015; border-color: var(--blue); background: var(--blue); }
+.outcome-editor { margin-top: 7px; color: #8fa2ad; font-size: 8px; }
+.outcome-editor summary { width: fit-content; cursor: pointer; user-select: none; }
+.outcome-fields { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; margin-top: 7px; }
+.outcome-fields label { display: grid; gap: 3px; }
+.outcome-fields select { min-width: 0; height: 27px; padding: 0 5px; color: #c8d7df; border: 1px solid #334c5c; border-radius: 5px; background: #0a1217; font-size: 8px; }
 .action-insights { margin: 12px 0; padding: 10px; border: 1px solid #41512f; border-radius: 8px; background: linear-gradient(150deg, #121b0f, #0b100d); }
 .action-insights.stale { opacity: .62; border-style: dashed; }
 .action-heading { display: flex; align-items: center; justify-content: space-between; margin-bottom: 8px; }

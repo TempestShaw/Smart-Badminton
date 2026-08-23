@@ -51,3 +51,7 @@ Automatic score rows have an evidence source: `automatic-terminal` or `automatic
 requires a high-confidence formal serve at the beginning of the following rally. `unresolved` rows do not add a point,
 and any total after an unresolved rally is labelled partial through `score_complete=false`. `manual` and
 `manual-no-point` are explicit user corrections, never automatic estimates.
+
+Score corrections may also store the rally server, last hitter, terminal event, landing side and post-rally handoff.
+Recalculation refreshes the evidence model before scoring. One project's labels only calibrate that project; a rule
+can affect other matches after passing the two-project gate. Manual winners always take precedence.
