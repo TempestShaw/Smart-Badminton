@@ -52,11 +52,11 @@ export function ProjectBrowser({ studio }: { studio: StudioController }) {
   };
 
   return (
-    <section className="project-strip" aria-label="项目与输出位置">
+    <section className="project-strip" aria-label="项目与输出位置" data-guide-surface>
       <div className="project-path-field source-folder-field">
         <Label htmlFor="source-folder">输入视频文件夹</Label>
         <div className="project-field-row">
-          <Input id="source-folder" value={path} spellCheck={false} onChange={(event) => setPath(event.target.value)} onKeyDown={(event) => {
+          <Input id="source-folder" data-guide-action="project" value={path} spellCheck={false} onChange={(event) => setPath(event.target.value)} onKeyDown={(event) => {
             if (event.key === "Enter") void studio.changeLibrary(path);
           }} />
           <Button variant="outline" aria-label="浏览输入文件夹" onClick={() => setSourcePickerOpen(true)}><FolderOpen />选择</Button>

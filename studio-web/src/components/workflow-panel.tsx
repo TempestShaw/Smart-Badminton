@@ -55,10 +55,10 @@ export function WorkflowPanel({
     void studio.launchAnalysis(batch, { preroll, postroll, suppress_handoffs: suppressHandoffs });
   };
   return (
-    <section className="workflow-panel" aria-label="剪片工作流">
+    <section className="workflow-panel" aria-label="剪片工作流" data-guide-surface>
       <Accordion type="single" defaultValue="auto" collapsible className="workflow-accordion">
         <AccordionItem value="auto" className="workflow-section">
-          <AccordionTrigger className="workflow-trigger">
+          <AccordionTrigger className="workflow-trigger" data-guide-action="auto-section">
             <span><small>01</small><Bot /><strong>自动剪片</strong></span>
             <Badge variant={automatic?.configured ? "default" : ffmpegReady ? "outline" : "destructive"}>
               {automatic?.configured ? "已配置" : ffmpegReady ? "待校准" : "FFmpeg 缺失"}
@@ -72,7 +72,7 @@ export function WorkflowPanel({
               <Label className="check-option"><Checkbox checked={suppressHandoffs} onCheckedChange={(checked) => setSuppressHandoffs(checked === true)} />过滤送球</Label>
             </div>
             <div className="workflow-actions">
-              <Button disabled={!automatic?.configured || running} onClick={() => requestLaunch(false)}><Sparkles />自动分析当前视频</Button>
+              <Button data-guide-action="analyze" disabled={!automatic?.configured || running} onClick={() => requestLaunch(false)}><Sparkles />自动分析当前视频</Button>
               <Button variant="outline" disabled={!automatic?.configured || running} onClick={() => requestLaunch(true)}><Boxes />批量分析新比赛</Button>
               <Button variant="outline" disabled={running || !studio.segments.length} onClick={() => void studio.launchScoreLabeling()}>
                 <ScanSearch />{scoreLabelRunning ? "标注中" : studio.project?.score_labeling.configured ? "标注未知比分" : "生成终局素材"}
@@ -82,7 +82,7 @@ export function WorkflowPanel({
         </AccordionItem>
 
         <AccordionItem value="court" className="workflow-section">
-          <AccordionTrigger className="workflow-trigger">
+          <AccordionTrigger className="workflow-trigger" data-guide-action="court-section">
             <span><small>02</small><Crosshair /><strong>场地与轨迹</strong></span>
             <Badge variant={studio.project?.calibration.ready ? "default" : "outline"}>{studio.project?.calibration.ready ? "场地已校准" : "未校准"}</Badge>
           </AccordionTrigger>
@@ -104,7 +104,7 @@ export function WorkflowPanel({
                 </Select>
               </Label>
             ) : null}
-            <Button size="sm" variant="outline" className={toolMode === "calibration" ? "tool-card active" : "tool-card"} onClick={() => onToolMode(toolMode === "calibration" ? "none" : "calibration")}>
+            <Button data-guide-action="calibration" size="sm" variant="outline" className={toolMode === "calibration" ? "tool-card active" : "tool-card"} onClick={() => onToolMode(toolMode === "calibration" ? "none" : "calibration")}>
               <Crosshair /><span><strong>框选球场</strong></span>
             </Button>
             <Button size="sm" variant="outline" className={toolMode === "shuttle" ? "tool-card active" : "tool-card"} disabled={!shuttle?.configured && !shuttle?.generated} onClick={() => onToolMode(toolMode === "shuttle" ? "none" : "shuttle")}>

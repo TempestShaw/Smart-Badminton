@@ -31,7 +31,7 @@ export function AppHeader({ studio }: { studio: StudioController }) {
       </div>
       <div className="top-actions">
         <BackgroundJobCenter studio={studio} />
-        <StudioTutorial />
+        <StudioTutorial studio={studio} />
         <Badge variant={studio.dirty ? "destructive" : "outline"}>{studio.dirty ? "有未保存修改" : "已保存"}</Badge>
         <Button size="sm" variant="outline" disabled={!studio.history.length} onClick={studio.undo}><Undo2 />撤销</Button>
         <Button size="sm" variant="outline" disabled={!studio.future.length} onClick={studio.redo}><Redo2 />重做</Button>
@@ -41,6 +41,7 @@ export function AppHeader({ studio }: { studio: StudioController }) {
         <AlertDialog>
           <AlertDialogTrigger asChild>
             <Button
+              data-guide-action="export"
               size="sm"
               variant="secondary"
               disabled={!studio.segments.length || studio.renderStatus.state === "running" || !ffmpegReady}

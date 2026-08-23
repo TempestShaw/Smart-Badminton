@@ -300,7 +300,7 @@ export function TimelineEditor({ studio }: { studio: StudioController }) {
 
   const evidence = studio.project?.evidence;
   return (
-    <section className="timeline-section">
+    <section className="timeline-section" data-guide-action="timeline" data-guide-surface tabIndex={-1}>
       <div className="timeline-toolbar">
         <div className="timeline-summary">
           <span className="eyebrow">SOURCE TIMELINE</span>

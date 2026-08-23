@@ -56,7 +56,7 @@ export function RallyInspector({ studio }: { studio: StudioController }) {
   };
 
   return (
-    <aside className="inspector">
+    <aside className="inspector" data-guide-action="score" data-guide-surface tabIndex={-1}>
       <div className="panel-heading"><div><span className="eyebrow">CLIP INSPECTOR</span><h2>{segment ? `回合片段 ${rally}` : "选择一个片段"}</h2></div><span className="clip-chip">{segment ? `R${String(rally).padStart(2, "0")}` : "—"}</span></div>
       <div className="time-fields">
         <Label>开始时间<Input type="number" min={0} step={0.001} disabled={!segment} value={segment?.start.toFixed(3) ?? ""} onChange={(event) => studio.editBoundary(studio.selectedIndex, "start", Number(event.target.value))} /></Label>
