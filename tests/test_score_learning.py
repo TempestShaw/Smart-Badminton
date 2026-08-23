@@ -1,5 +1,6 @@
 import csv
 import hashlib
+import json
 from pathlib import Path
 
 from smart_badminton.score_learning import fit_score_evidence_model, load_score_evidence_model
@@ -148,3 +149,38 @@ def test_global_rule_requires_consistent_examples_from_two_projects(tmp_path: Pa
 
     assert model["rules"]["landing_in:near"]["status"] == "trusted"
     assert model["rules"]["landing_in:near"]["projects"] == ["Match1", "Match2"]
+
+
+def test_machine_consensus_is_low_weight_and_project_local(tmp_path: Path) -> None:
+    _project(tmp_path, "Match1", ["far", "far"])
+    corrections = tmp_path / "Match1" / "Metadata" / "score-corrections.csv"
+    corrections.write_text("rally,winner,server_override,note\n1,far,unknown,human\n", encoding="utf-8")
+    machine = tmp_path / "Match1" / "Analysis" / "Score_Labeling" / "machine-score-labels.json"
+    machine.parent.mkdir(parents=True)
+    machine.write_text(
+        json.dumps(
+            {
+                "labels": [
+                    {
+                        "rally": 2,
+                        "status": "consensus",
+                        "suggestion": {
+                            "winner": "far",
+                            "last_hitter": "far",
+                            "terminal_event": "landing_in",
+                            "landing_side": "near",
+                            "post_rally_event": "none",
+                        },
+                    }
+                ]
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    model = fit_score_evidence_model(tmp_path, tmp_path / "score-model.json")
+
+    assert model["manual_examples"] == 1
+    assert model["pseudo_examples"] == 1
+    assert model["rules"]["landing_in:near"]["samples"] == 1
+    assert model["project_rules"]["Match1"]["landing_in:near"]["effective_samples"] == 1.25

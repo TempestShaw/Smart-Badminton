@@ -130,7 +130,7 @@ def test_studio_directory_browser_and_output_selection_are_real(tmp_path: Path, 
     assert changed.json()["directory_exists"] is True
     assert changed.json()["file_exists"] is False
     project = client.get("/api/project").json()
-    assert project["api_schema_version"] == 7
+    assert project["api_schema_version"] == 8
     assert project["output"]["filename"] == "match-final.mp4"
 
     invalid_name = client.put(
@@ -193,7 +193,7 @@ def test_studio_reports_missing_ffmpeg_and_rejects_video_jobs(tmp_path: Path, mo
 
     health = client.get("/api/health")
     assert health.status_code == 200
-    assert health.json()["api_schema_version"] == 7
+    assert health.json()["api_schema_version"] == 8
     assert health.json()["runtime"]["ffmpeg"]["available"] is False
     project = client.get("/api/project").json()
     assert project["runtime"]["ffmpeg"]["reason"] == "FFmpeg unavailable in test"
@@ -437,6 +437,58 @@ def test_studio_calculates_score_on_demand_and_invalidates_it_after_timeline_edi
     assert saved.status_code == 200
     assert saved.json()["score"]["available"] is False
     assert saved.json()["score"]["stale"] is True
+
+
+def test_studio_accepts_a_machine_score_suggestion_as_reviewed_truth(tmp_path: Path, monkeypatch) -> None:
+    video = tmp_path / "source.mp4"
+    video.write_bytes(b"placeholder")
+    timeline = tmp_path / "rallies.csv"
+    timeline.write_text("rally,start_seconds,end_seconds\n1,1,2\n", encoding="utf-8")
+    original = timeline.read_bytes()
+    metadata = {"name": video.name, "duration": 10.0, "fps": 30.0, "frame_count": 300, "width": 1280, "height": 720}
+    monkeypatch.setattr(studio, "_video_metadata", lambda _path: metadata)
+    labels = tmp_path / "Analysis" / "Score_Labeling" / "machine-score-labels.json"
+    labels.parent.mkdir(parents=True)
+    labels.write_text(
+        json.dumps(
+            {
+                "schema_version": 1,
+                "labels": [
+                    {
+                        "rally": 1,
+                        "status": "consensus",
+                        "model": "vision",
+                        "suggestion": {
+                            "winner": "far",
+                            "terminal_event": "net",
+                            "last_hitter": "near",
+                            "landing_side": "near",
+                            "post_rally_event": "none",
+                            "confidence": 0.91,
+                        },
+                    }
+                ],
+            }
+        ),
+        encoding="utf-8",
+    )
+    client = TestClient(
+        studio.create_studio_app(
+            StudioState(video=video, rallies=timeline, output=tmp_path / "edited.mp4", library=tmp_path)
+        )
+    )
+
+    response = client.put(
+        "/api/score-labels/review",
+        json={"project_id": "source.mp4", "rally": 1, "decision": "accepted"},
+    )
+
+    assert response.status_code == 200
+    assert response.json()["score"]["rallies"][0]["winner"] == "far"
+    assert response.json()["score_labeling"]["accepted"] == 1
+    corrections = (tmp_path / "Metadata" / "source-score-corrections.csv").read_text(encoding="utf-8")
+    assert "far" in corrections and "net" in corrections
+    assert timeline.read_bytes() == original
 
 
 def test_pose_only_flight_cannot_decide_server(tmp_path: Path, monkeypatch) -> None:

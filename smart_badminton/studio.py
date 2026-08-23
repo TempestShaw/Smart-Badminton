@@ -42,9 +42,18 @@ from .phase_examples import capture_phase_examples
 from .pose_overlay import render_pose_overlay
 from .rally_evidence import build_rally_evidence
 from .render import render_rallies
+from .score_labeling import (
+    label_score_evidence,
+    load_machine_labels,
+    prepare_score_evidence,
+    save_machine_label_review,
+    score_labeling_config,
+    score_labeling_directory,
+)
 from .score_learning import default_score_model_path, fit_score_evidence_model
 from .scoring import (
     analyze_score,
+    load_score_corrections,
     save_score_corrections,
     validate_score_corrections,
 )
@@ -117,7 +126,7 @@ class StudioState:
 
 
 VIDEO_EXTENSIONS = {".mp4", ".mov", ".mkv", ".avi"}
-API_SCHEMA_VERSION = 7
+API_SCHEMA_VERSION = 8
 EVIDENCE_SCHEMA_VERSION = 1
 VISIBLE_SHUTTLE_STATUSES = {"tracked", "recovered", "competing", "manual"}
 SHUTTLE_MODES = {"yolo", "tracknet", "hybrid"}
@@ -788,6 +797,41 @@ def _score_paths(state: StudioState) -> tuple[Path, Path, Path, Path]:
     output = analysis_root / "score-state.csv"
     summary = analysis_root / "score-summary.json"
     return corrections, events, output, summary
+
+
+def _score_label_paths(state: StudioState) -> tuple[Path, Path, Path]:
+    library = state.library or state.video.parent
+    root = score_labeling_directory(_project_root(library, state.video))
+    return root, root / "manifest.json", root / "machine-score-labels.json"
+
+
+def _score_labeling_payload(state: StudioState) -> dict[str, Any]:
+    root, manifest_path, labels_path = _score_label_paths(state)
+    config = score_labeling_config()
+    labels = load_machine_labels(labels_path)
+    status_counts = {status: 0 for status in ("consensus", "review", "accepted", "rejected")}
+    suggestions = []
+    for row in labels:
+        status = str(row.get("status", "review"))
+        if status in status_counts:
+            status_counts[status] += 1
+        suggestions.append(
+            {
+                "rally": int(row.get("rally", 0)),
+                "status": status,
+                "suggestion": row.get("suggestion", {}),
+                "model": row.get("model"),
+            }
+        )
+    return {
+        "configured": bool(config["configured"]),
+        "model": config["model"],
+        "prepared": manifest_path.exists(),
+        "directory": str(root),
+        "total": len(labels),
+        **status_counts,
+        "suggestions": suggestions,
+    }
 
 
 def _score_payload(state: StudioState) -> dict[str, Any]:
@@ -1660,6 +1704,7 @@ def create_studio_app(state: StudioState):
             },
             "analytics": analytics,
             "score": _score_payload(state),
+            "score_labeling": _score_labeling_payload(state),
             "evidence": evidence,
         }
 
@@ -1889,6 +1934,177 @@ def create_studio_app(state: StudioState):
             result["backup"] = str(backup) if backup else None
             return result
         except (OSError, TypeError, ValueError, KeyError) as error:
+            raise HTTPException(status_code=400, detail=str(error)) from error
+
+    def score_labeling_worker(video: Path, rally_ids: list[int]) -> None:
+        root, manifest_path, labels_path = _score_label_paths(state)
+        config = score_labeling_config()
+        total = len(rally_ids)
+        try:
+            prepare_score_evidence(
+                video,
+                state.rallies,
+                root,
+                rally_ids,
+                lambda completed, count: _set_analysis_status(
+                    state,
+                    state="running",
+                    stage="frames",
+                    label="正在提取终局画面",
+                    progress=0.05 + 0.35 * completed / max(1, count),
+                    completed=completed,
+                    total=count,
+                ),
+            )
+            if not config["configured"]:
+                _set_analysis_status(
+                    state,
+                    state="complete",
+                    mode="score-labels",
+                    stage="complete",
+                    label="待标注素材已生成",
+                    progress=1.0,
+                    completed=total,
+                    total=total,
+                    results=[{"directory": str(root), "rallies": rally_ids, "labeled": 0}],
+                )
+                return
+            result = label_score_evidence(
+                manifest_path,
+                labels_path,
+                str(config["model"]),
+                str(config["endpoint"]),
+                str(config["api_key"]),
+                progress_callback=lambda completed, count: _set_analysis_status(
+                    state,
+                    state="running",
+                    stage="label",
+                    label="正在判断终局",
+                    progress=0.40 + 0.60 * completed / max(1, count),
+                    completed=completed,
+                    total=count,
+                ),
+            )
+            library = state.library or video.parent
+            model_payload = fit_score_evidence_model(library, default_score_model_path(library))
+            _calculate_score_payload(state)
+            consensus = sum(row.get("status") == "consensus" for row in result["labels"])
+            _set_analysis_status(
+                state,
+                state="complete",
+                mode="score-labels",
+                stage="complete",
+                label="终局建议已生成",
+                progress=1.0,
+                completed=total,
+                total=total,
+                results=[
+                    {
+                        "directory": str(root),
+                        "rallies": rally_ids,
+                        "labeled": len(result["labels"]),
+                        "consensus": consensus,
+                        "pseudo_examples": model_payload.get("pseudo_examples", 0),
+                    }
+                ],
+            )
+        except Exception as error:  # noqa: BLE001 - background failures must reach Studio
+            _set_analysis_status(
+                state,
+                state="error",
+                mode="score-labels",
+                label="终局标注失败",
+                message=str(error),
+            )
+        finally:
+            state.analysis_lock.release()
+
+    @app.post("/api/score-labels/analyze")
+    def start_score_labeling(payload: dict[str, Any] | None = None):
+        library = state.library or state.video.parent
+        requested_project = str((payload or {}).get("project_id", "")).strip()
+        active_project = _video_id(library, state.video)
+        if requested_project and requested_project != active_project:
+            raise HTTPException(status_code=409, detail="The active video changed; refresh Studio before labeling")
+        if state.render_status.get("state") == "running":
+            raise HTTPException(status_code=409, detail="Wait for rendering to finish before labeling")
+        if not state.rallies.exists() or not load_rallies(state.rallies):
+            raise HTTPException(status_code=400, detail="请先完成剪辑时间表")
+        score = _score_payload(state)
+        if not score.get("available"):
+            score = _calculate_score_payload(state)
+        rally_ids = [int(row["rally"]) for row in score.get("rallies", []) if row.get("winner") == "unknown"]
+        if not rally_ids:
+            state.analysis_status = {
+                "state": "complete",
+                "mode": "score-labels",
+                "stage": "complete",
+                "label": "没有待判断的回合",
+                "progress": 1.0,
+                "completed": 0,
+                "total": 0,
+                "results": [],
+            }
+            return state.analysis_status
+        if not state.analysis_lock.acquire(blocking=False):
+            raise HTTPException(status_code=409, detail="Another analysis job is already running")
+        with state.project_lock:
+            source = state.video
+        _begin_analysis_status(
+            state,
+            mode="score-labels",
+            stage="queued",
+            label="终局标注已排队",
+            progress=0.0,
+            completed=0,
+            total=len(rally_ids),
+            project_id=active_project,
+            project_name=source.name,
+        )
+        threading.Thread(target=score_labeling_worker, args=(source, rally_ids), daemon=True).start()
+        return state.analysis_status
+
+    @app.put("/api/score-labels/review")
+    async def review_score_label(payload: dict[str, Any]):
+        library = state.library or state.video.parent
+        if str(payload.get("project_id", "")) != _video_id(library, state.video):
+            raise HTTPException(status_code=409, detail="The active video changed; refresh Studio before reviewing")
+        try:
+            rally = int(payload["rally"])
+            decision = str(payload["decision"])
+            _, _, labels_path = _score_label_paths(state)
+            label = next((row for row in load_machine_labels(labels_path) if int(row.get("rally", 0)) == rally), None)
+            if label is None:
+                raise ValueError(f"No machine score label for rally {rally}")
+            score_result = _score_payload(state)
+            if decision == "accepted":
+                suggestion = label.get("suggestion", {})
+                corrections_path = _score_corrections_path(library, state.video)
+                corrections = load_score_corrections(corrections_path)
+                current = next((row for row in corrections if int(row["rally"]) == rally), None) or {
+                    "rally": rally,
+                    "winner": "auto",
+                    "server_override": "unknown",
+                    "server": "unknown",
+                    "last_hitter": "unknown",
+                    "terminal_event": "unknown",
+                    "landing_side": "unknown",
+                    "post_rally_event": "unknown",
+                    "note": "",
+                }
+                replacement = {**current}
+                for field in ("winner", "last_hitter", "terminal_event", "landing_side", "post_rally_event"):
+                    value = str(suggestion.get(field, "unknown"))
+                    if value != "unknown":
+                        replacement[field] = value
+                replacement["note"] = "multimodal review"
+                rows = [row for row in corrections if int(row["rally"]) != rally] + [replacement]
+                rows = validate_score_corrections(rows, len(load_rallies(state.rallies)))
+                save_score_corrections(corrections_path, rows)
+                score_result = _calculate_score_payload(state)
+            save_machine_label_review(labels_path, rally, decision)
+            return {"score": score_result, "score_labeling": _score_labeling_payload(state)}
+        except (KeyError, OSError, TypeError, ValueError) as error:
             raise HTTPException(status_code=400, detail=str(error)) from error
 
     @app.get("/api/shuttle-annotations")

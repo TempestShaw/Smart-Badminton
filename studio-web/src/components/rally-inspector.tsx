@@ -10,7 +10,7 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import type { StudioController } from "@/hooks/use-studio-controller";
-import type { ScoreCorrection } from "@/types/studio";
+import type { ScoreCorrection, ScoreSuggestion } from "@/types/studio";
 
 const eventLabels: Record<string, string> = {
   landing_in_candidate: "界内落地",
@@ -28,6 +28,7 @@ export function RallyInspector({ studio }: { studio: StudioController }) {
   const action = !studio.dirty && rally > 0 ? studio.analyticsMap.get(rally) : undefined;
   const score = rally > 0 ? studio.scoreMap.get(rally) : undefined;
   const correction = studio.score.corrections?.find((row) => row.rally === rally);
+  const suggestion = studio.scoreSuggestionMap.get(rally);
   const [deleteOpen, setDeleteOpen] = useState(false);
   const [skipDeleteConfirm, setSkipDeleteConfirm] = useState(
     () => typeof window !== "undefined" && window.localStorage.getItem(SKIP_DELETE_CONFIRM_KEY) === "1",
@@ -63,7 +64,7 @@ export function RallyInspector({ studio }: { studio: StudioController }) {
       </div>
       <div className="duration-card"><span>片段长度</span><strong>{segment ? `${(segment.end - segment.start).toFixed(3)} s` : "—"}</strong></div>
 
-      {segment ? <ScoreCard studio={studio} score={score} correction={correction} /> : null}
+      {segment ? <ScoreCard studio={studio} score={score} correction={correction} suggestion={suggestion} /> : null}
 
       {studio.analytics.available && segment ? (
         <section className={studio.dirty ? "action-insights stale" : "action-insights"}>
@@ -111,7 +112,8 @@ function Metric({ label, value }: { label: string; value: string | number }) {
   return <div className="metric"><span>{label}</span><strong>{value}</strong></div>;
 }
 
-function ScoreCard({ studio, score, correction }: { studio: StudioController; score: ReturnType<StudioController["scoreMap"]["get"]>; correction?: ScoreCorrection }) {
+function ScoreCard({ studio, score, correction, suggestion }: { studio: StudioController; score: ReturnType<StudioController["scoreMap"]["get"]>; correction?: ScoreCorrection; suggestion?: ScoreSuggestion }) {
+  const rally = score?.rally ?? correction?.rally ?? suggestion?.rally ?? 0;
   const sourceLabels: Record<string, string> = {
     "automatic-next-serve": "自动",
     "automatic-terminal": "自动",
@@ -145,6 +147,13 @@ function ScoreCard({ studio, score, correction }: { studio: StudioController; sc
       </div>
       <div className="score-line"><span>近场</span><strong>{evidenceCurrent ? score?.near_score ?? 0 : "—"}</strong><em>:</em><strong>{evidenceCurrent ? score?.far_score ?? 0 : "—"}</strong><span>远场</span></div>
       <p>下分发球：{evidenceCurrent ? serverLabels[score?.server_next ?? "unknown"] : "—"}</p>
+      {suggestion && ["consensus", "review"].includes(suggestion.status) ? (
+        <div className="score-suggestion">
+          <span>建议：{winnerLabels[suggestion.suggestion.winner]} · {terminalLabels[suggestion.suggestion.terminal_event]}</span>
+          <Button size="xs" onClick={() => void studio.reviewScoreLabel(rally, "accepted")}>采用</Button>
+          <Button size="xs" variant="ghost" onClick={() => void studio.reviewScoreLabel(rally, "rejected")}>忽略</Button>
+        </div>
+      ) : null}
       <div className="score-actions">{button("near", "近场得分")}{button("far", "远场得分")}{button("no_point", "本分无效")}{button("auto", "恢复自动")}</div>
       <details className="outcome-editor">
         <summary>标注依据</summary>
@@ -164,6 +173,8 @@ function ScoreCard({ studio, score, correction }: { studio: StudioController; sc
 const sideOptions = [["unknown", "未知"], ["near", "近场"], ["far", "远场"]] as const;
 const terminalOptions = [["unknown", "未知"], ["landing_in", "界内落地"], ["landing_out", "出界"], ["net", "下网"], ["unreturned", "未回击"]] as const;
 const postRallyOptions = [["unknown", "未知"], ["none", "无"], ["handoff", "送球"]] as const;
+const winnerLabels: Record<string, string> = { near: "近场", far: "远场", no_point: "无效", unknown: "未知" };
+const terminalLabels: Record<string, string> = { landing_in: "界内", landing_out: "出界", net: "下网", unreturned: "未回击", unknown: "未知" };
 
 function OutcomeSelect({ label, value, options, disabled, onChange }: { label: string; value: string; options: ReadonlyArray<readonly [string, string]>; disabled: boolean; onChange: (value: string) => void }) {
   return <label>{label}<select value={value} disabled={disabled} onChange={(event) => onChange(event.target.value)}>{options.map(([option, text]) => <option key={option} value={option}>{text}</option>)}</select></label>;

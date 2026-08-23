@@ -28,7 +28,7 @@ interface TimelineSaveResponse {
   score: ScorePayload;
 }
 
-const API_SCHEMA_VERSION = 7;
+const API_SCHEMA_VERSION = 8;
 
 function sameTimeline(first: Segment[], second: Segment[]): boolean {
   return first.length === second.length && first.every((segment, index) => {
@@ -374,6 +374,37 @@ export function useStudioController() {
     }
   }, [dirty, notify, project, saveTimeline, segments.length]);
 
+  const launchScoreLabeling = useCallback(async () => {
+    if (!project) return;
+    if (dirty && !(await saveTimeline())) return;
+    try {
+      const payload = await apiRequest<AnalysisStatus>("/api/score-labels/analyze", {
+        method: "POST",
+        body: JSON.stringify({ project_id: project.id }),
+      });
+      completionKeyRef.current = "";
+      setAnalysisStatus(payload);
+      notify(payload.state === "complete" ? payload.label ?? "没有待标注回合" : "终局标注已开始");
+    } catch (error) {
+      notify((error as Error).message, true);
+    }
+  }, [dirty, notify, project, saveTimeline]);
+
+  const reviewScoreLabel = useCallback(async (rally: number, decision: "accepted" | "rejected") => {
+    if (!project) return;
+    try {
+      const payload = await apiRequest<{ score: ScorePayload; score_labeling: ProjectPayload["score_labeling"] }>("/api/score-labels/review", {
+        method: "PUT",
+        body: JSON.stringify({ project_id: project.id, rally, decision }),
+      });
+      setScore(payload.score);
+      setProject((current) => current ? { ...current, score: payload.score, score_labeling: payload.score_labeling } : current);
+      notify(decision === "accepted" ? "建议已采用" : "建议已忽略");
+    } catch (error) {
+      notify((error as Error).message, true);
+    }
+  }, [notify, project]);
+
   const refreshAnalyticsAndScore = useCallback(async () => {
     try {
       const [analyticsPayload, scorePayload] = await Promise.all([
@@ -478,7 +509,7 @@ export function useStudioController() {
           const key = JSON.stringify(payload.results ?? []);
           if (key && key !== completionKeyRef.current) {
             completionKeyRef.current = key;
-            const visualOnly = payload.mode === "shuttle" || payload.mode === "visual";
+            const visualOnly = payload.mode === "shuttle" || payload.mode === "visual" || payload.mode === "score-labels";
             await Promise.all([visualOnly ? refreshProjectMetadata() : reloadProject(), refreshLibrary()]);
           }
         } else if (payload.state === "error") {
@@ -553,6 +584,10 @@ export function useStudioController() {
     () => new Map<number, ScoreRow>((score.rallies ?? []).map((row) => [Number(row.rally), row])),
     [score.rallies],
   );
+  const scoreSuggestionMap = useMemo(
+    () => new Map((project?.score_labeling.suggestions ?? []).map((row) => [Number(row.rally), row])),
+    [project?.score_labeling.suggestions],
+  );
 
   return {
     videoRef,
@@ -568,6 +603,7 @@ export function useStudioController() {
     analyticsMap,
     score,
     scoreMap,
+    scoreSuggestionMap,
     analysisStatus,
     renderStatus,
     mediaSource: project ? mediaUrl(`/media/video?v=${mediaNonce}`) : null,
@@ -592,6 +628,8 @@ export function useStudioController() {
     refreshProject: reloadProject,
     updateScore,
     calculateScore,
+    launchScoreLabeling,
+    reviewScoreLabel,
     refreshAnalyticsAndScore,
     applyCalibrationResult,
     launchAnalysis,

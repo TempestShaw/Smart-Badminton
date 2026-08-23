@@ -227,6 +227,8 @@ button[data-variant="default"] { color: var(--primary-foreground); }
 .score-line span { color: #9eb0bb; font-size: 9px; }
 .score-card p, .score-card small { display: block; margin: 4px 0 0; color: #7f929e; font-size: 8px; }
 .score-actions { display: grid; grid-template-columns: repeat(2, 1fr); gap: 4px; margin-top: 8px; }
+.score-suggestion { display: flex; align-items: center; gap: 5px; margin-top: 7px; color: #c7d7df; font-size: 8px; }
+.score-suggestion span { flex: 1; }
 .score-actions button { min-height: 27px; color: #b9cfdb; border: 1px solid #334c5c; border-radius: 5px; background: #101c23; cursor: pointer; font-size: 8px; }
 .score-actions button.active { color: #071015; border-color: var(--blue); background: var(--blue); }
 .outcome-editor { margin-top: 7px; color: #8fa2ad; font-size: 8px; }

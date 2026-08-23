@@ -20,6 +20,7 @@ from .model import MODEL_FAMILIES, benchmark_multi_models, predict_model, train_
 from .regression import regression_gate, train_guarded_candidate
 from .render import render_rallies
 from .review import render_boundary_reviews
+from .score_labeling import label_score_evidence, prepare_score_evidence, score_labeling_config
 from .score_learning import default_score_model_path, fit_score_evidence_model
 from .scoring import analyze_score, evaluate_score
 from .segmenter import segment_rallies
@@ -240,6 +241,17 @@ def main() -> None:
     score_train = commands.add_parser("train-score-evidence")
     score_train.add_argument("--library", type=path, required=True)
     score_train.add_argument("--output", type=path)
+    score_prepare = commands.add_parser("prepare-score-labels")
+    score_prepare.add_argument("--video", type=path, required=True)
+    score_prepare.add_argument("--rallies", type=path, required=True)
+    score_prepare.add_argument("--output-directory", type=path, required=True)
+    score_prepare.add_argument("--rally", type=int, action="append", dest="rally_ids")
+    score_label = commands.add_parser("label-score-evidence")
+    score_label.add_argument("--manifest", type=path, required=True)
+    score_label.add_argument("--output", type=path, required=True)
+    score_label.add_argument("--model")
+    score_label.add_argument("--endpoint")
+    score_label.add_argument("--passes", type=int, default=2)
     score_eval = commands.add_parser("evaluate-score")
     score_eval.add_argument("--predicted", type=path, required=True)
     score_eval.add_argument("--truth", type=path, required=True)
@@ -550,6 +562,30 @@ def main() -> None:
     elif args.command == "train-score-evidence":
         output = args.output or default_score_model_path(args.library)
         print(json.dumps(fit_score_evidence_model(args.library, output), ensure_ascii=False, indent=2))
+    elif args.command == "prepare-score-labels":
+        print(
+            json.dumps(
+                prepare_score_evidence(args.video, args.rallies, args.output_directory, args.rally_ids),
+                ensure_ascii=False,
+                indent=2,
+            )
+        )
+    elif args.command == "label-score-evidence":
+        config = score_labeling_config()
+        print(
+            json.dumps(
+                label_score_evidence(
+                    args.manifest,
+                    args.output,
+                    args.model or str(config.get("model") or ""),
+                    args.endpoint or str(config.get("endpoint") or ""),
+                    str(config.get("api_key") or ""),
+                    args.passes,
+                ),
+                ensure_ascii=False,
+                indent=2,
+            )
+        )
     elif args.command == "evaluate-score":
         print(json.dumps(evaluate_score(args.predicted, args.truth, args.output), indent=2))
     elif args.command == "render":

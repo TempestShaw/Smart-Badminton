@@ -41,6 +41,7 @@ export function WorkflowPanel({
   const running = studio.analysisStatus.state === "running";
   const shuttleRunning = running && studio.analysisStatus.mode === "shuttle";
   const visualRunning = running && studio.analysisStatus.mode === "visual";
+  const scoreLabelRunning = running && studio.analysisStatus.mode === "score-labels";
   const requestLaunch = (batch: boolean) => {
     if (![preroll, postroll].every((value) => Number.isFinite(value) && value >= 0 && value <= 2)) {
       return studio.notify("前留和后留必须在 0–2 秒之间", true);
@@ -73,6 +74,9 @@ export function WorkflowPanel({
             <div className="workflow-actions">
               <Button disabled={!automatic?.configured || running} onClick={() => requestLaunch(false)}><Sparkles />自动分析当前视频</Button>
               <Button variant="outline" disabled={!automatic?.configured || running} onClick={() => requestLaunch(true)}><Boxes />批量分析新比赛</Button>
+              <Button variant="outline" disabled={running || !studio.segments.length} onClick={() => void studio.launchScoreLabeling()}>
+                <ScanSearch />{scoreLabelRunning ? "标注中" : studio.project?.score_labeling.configured ? "标注未知比分" : "生成终局素材"}
+              </Button>
             </div>
           </AccordionContent>
         </AccordionItem>

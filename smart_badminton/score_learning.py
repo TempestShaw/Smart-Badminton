@@ -7,10 +7,12 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
-MODEL_VERSION = 2
+MODEL_VERSION = 3
 TRAINING_FIELDS = [
     "project",
     "rally",
+    "source",
+    "weight",
     "winner",
     "server",
     "last_hitter_truth",
@@ -88,17 +90,21 @@ def collect_score_examples(library: Path) -> tuple[list[dict[str, Any]], list[Pa
         events = {int(row["rally"]): row for row in _read_csv(events_path)}
         project = str(project_root.relative_to(library)).replace("\\", "/")
         inputs.extend([corrections_path, events_path])
+        human_rallies = set()
         for correction in corrections:
             winner = str(correction.get("winner", "auto"))
             if winner not in {"near", "far"}:
                 continue
             rally = int(correction["rally"])
+            human_rallies.add(rally)
             event = events.get(rally, {})
             predicted, rule_key = raw_terminal_prediction(event)
             examples.append(
                 {
                     "project": project,
                     "rally": rally,
+                    "source": "human",
+                    "weight": 1.0,
                     "winner": winner,
                     "server": str(correction.get("server", "unknown")),
                     "last_hitter_truth": str(correction.get("last_hitter", "unknown")),
@@ -115,6 +121,43 @@ def collect_score_examples(library: Path) -> tuple[list[dict[str, Any]], list[Pa
                     "correct": predicted == winner if rule_key is not None else "",
                 }
             )
+        machine_path = project_root / "Analysis" / "Score_Labeling" / "machine-score-labels.json"
+        if machine_path.exists():
+            inputs.append(machine_path)
+            try:
+                machine_labels = json.loads(machine_path.read_text(encoding="utf-8")).get("labels", [])
+            except (OSError, ValueError, AttributeError):
+                machine_labels = []
+            for row in machine_labels:
+                rally = int(row.get("rally", 0))
+                suggestion = row.get("suggestion", {})
+                winner = str(suggestion.get("winner", "unknown")) if isinstance(suggestion, dict) else "unknown"
+                if row.get("status") != "consensus" or rally in human_rallies or winner not in {"near", "far"}:
+                    continue
+                event = events.get(rally, {})
+                predicted, rule_key = raw_terminal_prediction(event)
+                examples.append(
+                    {
+                        "project": project,
+                        "rally": rally,
+                        "source": "machine_consensus",
+                        "weight": 0.25,
+                        "winner": winner,
+                        "server": "unknown",
+                        "last_hitter_truth": str(suggestion.get("last_hitter", "unknown")),
+                        "terminal_event_truth": str(suggestion.get("terminal_event", "unknown")),
+                        "landing_side_truth": str(suggestion.get("landing_side", "unknown")),
+                        "post_rally_event": str(suggestion.get("post_rally_event", "unknown")),
+                        "detected_event": str(event.get("event", "unknown")),
+                        "detected_last_hitter": str(event.get("last_hitter", "unknown")),
+                        "detected_landing_side": str(event.get("landing_side", "unknown")),
+                        "detected_confidence": str(event.get("confidence", "0")),
+                        "detected_score_usable": str(event.get("score_usable", "no")),
+                        "predicted": predicted,
+                        "rule": rule_key or "",
+                        "correct": predicted == winner if rule_key is not None else "",
+                    }
+                )
     return examples, inputs
 
 
@@ -130,25 +173,31 @@ def fit_score_evidence_model(library: Path, output: Path) -> dict[str, Any]:
     examples, inputs = collect_score_examples(library)
     grouped: dict[str, list[dict[str, Any]]] = {}
     for example in examples:
+        if example["source"] != "human":
+            continue
         if example["rule"]:
             grouped.setdefault(str(example["rule"]), []).append(example)
 
     def summarize_rule(rows: list[dict[str, Any]], require_multiple_projects: bool) -> dict[str, Any]:
         samples = len(rows)
         correct = sum(bool(row["correct"]) for row in rows)
-        accuracy = correct / samples
+        effective_samples = sum(float(row.get("weight", 1.0)) for row in rows)
+        weighted_correct = sum(float(row.get("weight", 1.0)) for row in rows if row["correct"])
+        accuracy = weighted_correct / effective_samples
         projects = sorted({str(row["project"]) for row in rows})
         status = "default"
         cross_project_ready = not require_multiple_projects or len(projects) >= 2
-        if cross_project_ready and samples >= MIN_DISABLE_SAMPLES and accuracy < DISABLE_ACCURACY:
+        if cross_project_ready and effective_samples >= MIN_DISABLE_SAMPLES and accuracy < DISABLE_ACCURACY:
             status = "disabled"
-        elif cross_project_ready and samples >= MIN_TRUST_SAMPLES and accuracy >= TRUST_ACCURACY:
+        elif cross_project_ready and effective_samples >= MIN_TRUST_SAMPLES and accuracy >= TRUST_ACCURACY:
             status = "trusted"
         elif require_multiple_projects and not cross_project_ready:
             status = "candidate"
         return {
             "samples": samples,
             "correct": correct,
+            "effective_samples": round(effective_samples, 3),
+            "weighted_correct": round(weighted_correct, 3),
             "accuracy": round(accuracy, 4),
             "projects": projects,
             "status": status,
@@ -177,8 +226,9 @@ def fit_score_evidence_model(library: Path, output: Path) -> dict[str, Any]:
         "trained_at": datetime.now(timezone.utc).isoformat(),
         "library": str(library.resolve()),
         "dataset_sha256": dataset_sha256,
-        "manual_examples": len(examples),
-        "comparable_examples": sum(bool(row["rule"]) for row in examples),
+        "manual_examples": sum(row["source"] == "human" for row in examples),
+        "pseudo_examples": sum(row["source"] == "machine_consensus" for row in examples),
+        "comparable_examples": sum(bool(row["rule"]) and row["source"] == "human" for row in examples),
         "projects": sorted({str(row["project"]) for row in examples}),
         "rules": rules,
         "project_rules": project_rules,
@@ -198,4 +248,4 @@ def fit_score_evidence_model(library: Path, output: Path) -> dict[str, Any]:
 
 
 def default_score_model_path(library: Path) -> Path:
-    return library / ".smart-badminton" / "models" / "score-evidence-v2.json"
+    return library / ".smart-badminton" / "models" / "score-evidence-v3.json"

@@ -13,6 +13,7 @@ const modeLabels = {
   batch: "批量剪片预测",
   shuttle: "整段羽球轨迹",
   visual: "整段视觉分析",
+  "score-labels": "终局标注",
 } as const;
 
 function formatDuration(seconds: number): string {

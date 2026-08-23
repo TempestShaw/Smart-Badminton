@@ -116,6 +116,35 @@ export interface ScorePayload {
   serve_observations?: { rally: number; time: number; server: "near" | "far"; confidence: number }[];
 }
 
+export interface ScoreSuggestion {
+  rally: number;
+  status: "consensus" | "review" | "accepted" | "rejected";
+  model?: string | null;
+  suggestion: {
+    winner: "near" | "far" | "no_point" | "unknown";
+    terminal_event: "landing_in" | "landing_out" | "net" | "unreturned" | "unknown";
+    last_hitter: "near" | "far" | "unknown";
+    landing_side: "near" | "far" | "unknown";
+    post_rally_event: "handoff" | "none" | "unknown";
+    confidence: number;
+    evidence_frames?: number[];
+    reason?: string;
+  };
+}
+
+export interface ScoreLabelingPayload {
+  configured: boolean;
+  model: string | null;
+  prepared: boolean;
+  directory: string;
+  total: number;
+  consensus: number;
+  review: number;
+  accepted: number;
+  rejected: number;
+  suggestions: ScoreSuggestion[];
+}
+
 export interface EvidencePayload {
   available: boolean;
   reason?: string;
@@ -197,6 +226,7 @@ export interface ProjectPayload {
   calibration: { ready: boolean; path: string };
   analytics: AnalyticsPayload;
   score: ScorePayload;
+  score_labeling: ScoreLabelingPayload;
   evidence: EvidencePayload;
 }
 
@@ -245,7 +275,7 @@ export interface RenderStatus {
 
 export interface AnalysisStatus {
   state: "idle" | "running" | "complete" | "error";
-  mode?: "single" | "batch" | "shuttle" | "visual";
+  mode?: "single" | "batch" | "shuttle" | "visual" | "score-labels";
   stage?: string;
   label?: string;
   message?: string;
