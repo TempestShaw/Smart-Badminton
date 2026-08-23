@@ -4,7 +4,6 @@ import csv
 import json
 import math
 import os
-import re
 import shutil
 import subprocess
 import sys
@@ -38,8 +37,10 @@ from .geometry import CourtGeometry
 from .hybrid import fuse_shuttle_detections
 from .io import load_rallies, read_rows, resolve_ffmpeg
 from .model import predict_model
+from .model_registry import ModelRegistry
 from .phase_examples import capture_phase_examples
 from .pose_overlay import render_pose_overlay
+from .project_layout import LibraryLayout, ProjectLayout, find_project_root, video_key
 from .rally_evidence import build_rally_evidence
 from .render import render_rallies
 from .score_labeling import (
@@ -48,7 +49,6 @@ from .score_labeling import (
     prepare_score_evidence,
     save_machine_label_review,
     score_labeling_config,
-    score_labeling_directory,
 )
 from .score_learning import default_score_model_path, fit_score_evidence_model
 from .scoring import (
@@ -180,8 +180,7 @@ EXCLUDED_VIDEO_MARKERS = ("_edited", "_final", "_proxy", "_review")
 
 
 def _video_key(video: Path) -> str:
-    match = re.search(r"_(\d{4})_D$", video.stem, re.IGNORECASE)
-    return match.group(1) if match else video.stem
+    return video_key(video)
 
 
 def _discover_videos(library: Path) -> list[Path]:
@@ -201,12 +200,7 @@ def _discover_videos(library: Path) -> list[Path]:
 
 
 def _project_root(library: Path, video: Path) -> Path:
-    current = video.parent
-    while current != library and library in current.parents:
-        if re.fullmatch(r"match[\w-]*", current.name, re.IGNORECASE):
-            return current
-        current = current.parent
-    return library
+    return find_project_root(library, video)
 
 
 def _video_id(library: Path, video: Path) -> str:
@@ -214,39 +208,15 @@ def _video_id(library: Path, video: Path) -> str:
 
 
 def _proxy_for(video: Path, library: Path | None = None) -> Path | None:
-    for suffix in (".LRF", ".lrf"):
-        candidate = video.with_suffix(suffix)
-        if candidate.exists():
-            return candidate
-    if library is not None:
-        project_root = _project_root(library, video)
-        if project_root != library:
-            candidates = [
-                project_root / "Proxy" / f"{video.stem}_proxy_720p.mp4",
-                project_root / "Proxy" / f"{video.stem}.mp4",
-            ]
-            for candidate in candidates:
-                if candidate.exists():
-                    return candidate
-        else:
-            candidate = library / "Analysis" / "Auto" / video.stem / "Proxy" / f"{video.stem}_proxy_720p.mp4"
-            if candidate.exists():
-                return candidate
-    return None
+    return ProjectLayout.for_video(library or video.parent, video).existing_proxy()
 
 
 def _working_timeline_path(library: Path, video: Path) -> Path:
-    project_root = _project_root(library, video)
-    if project_root != library:
-        return project_root / "Metadata" / "rallies-studio-review.csv"
-    return library / "Analysis" / "Studio" / f"{video.stem}.csv"
+    return ProjectLayout.for_video(library, video).working_timeline
 
 
 def _ground_truth_path(library: Path, video: Path) -> Path:
-    project_root = _project_root(library, video)
-    if project_root != library:
-        return project_root / "Metadata" / "rallies-ground-truth.csv"
-    return library / "Standard_Answers" / f"{_video_key(video)}_rallies_ground_truth.csv"
+    return ProjectLayout.for_video(library, video).ground_truth
 
 
 def _timeline_has_segments(path: Path) -> bool:
@@ -280,10 +250,7 @@ def _ensure_working_timeline(library: Path, video: Path) -> Path:
 
 
 def _default_output(library: Path, video: Path) -> Path:
-    project_root = _project_root(library, video)
-    if project_root != library:
-        return project_root / "Edited" / f"{project_root.name}_final_1080p60.mp4"
-    return library / "Archive" / "Studio_Exports" / f"{video.stem}_edited_1080p60.mp4"
+    return ProjectLayout.for_video(library, video).default_output
 
 
 def _filesystem_roots() -> list[Path]:
@@ -405,28 +372,19 @@ def _library_payload(state: StudioState) -> dict[str, Any]:
 
 
 def _analysis_directory(library: Path, video: Path) -> Path:
-    project_root = _project_root(library, video)
-    if project_root != library:
-        return project_root / "Analysis"
-    return library / "Analysis" / "Auto" / video.stem
+    return ProjectLayout.for_video(library, video).analysis.root
 
 
 def _shuttle_annotations_path(library: Path, video: Path) -> Path:
-    return _analysis_directory(library, video) / "Shuttle_Annotations" / "user-shuttle-points.csv"
+    return ProjectLayout.for_video(library, video).analysis.shuttle_annotations
 
 
 def _score_corrections_path(library: Path, video: Path) -> Path:
-    project_root = _project_root(library, video)
-    if project_root != library:
-        return project_root / "Metadata" / "score-corrections.csv"
-    return library / "Metadata" / f"{video.stem}-score-corrections.csv"
+    return ProjectLayout.for_video(library, video).score_corrections
 
 
 def _segmentation_adapter_path(library: Path, video: Path) -> Path:
-    project_root = _project_root(library, video)
-    if project_root != library:
-        return project_root / "Metadata" / "segmentation-adapter.json"
-    return library / "Metadata" / f"{video.stem}-segmentation-adapter.json"
+    return ProjectLayout.for_video(library, video).segmentation_adapter
 
 
 def _trajectory_needs_refinement(
@@ -791,18 +749,37 @@ def _serve_observations(state: StudioState, evidence: dict[str, Any]) -> list[di
 
 def _score_paths(state: StudioState) -> tuple[Path, Path, Path, Path]:
     library = state.library or state.video.parent
-    analysis_root = _analysis_directory(library, state.video)
-    corrections = _score_corrections_path(library, state.video)
-    events = analysis_root / "rally-events.csv"
-    output = analysis_root / "score-state.csv"
-    summary = analysis_root / "score-summary.json"
-    return corrections, events, output, summary
+    layout = ProjectLayout.for_video(library, state.video)
+    return (
+        layout.score_corrections,
+        layout.analysis.score_events,
+        layout.analysis.score_state,
+        layout.analysis.score_summary,
+    )
 
 
 def _score_label_paths(state: StudioState) -> tuple[Path, Path, Path]:
     library = state.library or state.video.parent
-    root = score_labeling_directory(_project_root(library, state.video))
+    layout = ProjectLayout.for_video(library, state.video)
+    root = layout.analysis.score_labeling
+    legacy_root = library / "Analysis" / "Score_Labeling"
+    if not layout.is_match_project and legacy_root.exists() and not root.exists():
+        root = legacy_root
     return root, root / "manifest.json", root / "machine-score-labels.json"
+
+
+def _model_registry(state: StudioState) -> ModelRegistry:
+    library = state.library or state.video.parent
+    labeling = score_labeling_config()
+    return ModelRegistry(
+        rally_state=state.model,
+        pose=state.pose_model,
+        shuttle_yolo=state.shuttle_model,
+        tracknet=state.tracknet_model,
+        inpaint=state.inpaint_model,
+        score_evidence=default_score_model_path(library),
+        vision_models=tuple(labeling["models"]),
+    )
 
 
 def _score_labeling_payload(state: StudioState) -> dict[str, Any]:
@@ -1057,16 +1034,7 @@ def _shuttle_annotation_payload(state: StudioState) -> dict[str, Any]:
 
 
 def _available_shuttle_modes(state: StudioState) -> list[str]:
-    yolo = bool(state.shuttle_model and state.shuttle_model.exists())
-    tracknet = bool(state.tracknet_model and state.tracknet_model.exists())
-    modes = []
-    if yolo:
-        modes.append("yolo")
-    if tracknet:
-        modes.append("tracknet")
-    if yolo and tracknet:
-        modes.append("hybrid")
-    return modes
+    return _model_registry(state).available_shuttle_modes()
 
 
 def _effective_shuttle_mode(state: StudioState) -> str | None:
@@ -1253,7 +1221,7 @@ def _set_analysis_status(studio_state: StudioState, **values: Any) -> None:
 
 def _analysis_status_path(studio_state: StudioState) -> Path:
     root = studio_state.library or studio_state.video.parent
-    return root / ".smart-badminton" / "jobs" / "analysis-status.json"
+    return LibraryLayout(root).analysis_status
 
 
 def _persist_analysis_status(studio_state: StudioState, force: bool = False) -> None:
@@ -1682,6 +1650,7 @@ def create_studio_app(state: StudioState):
             "output_path": str(state.output),
             "output": _output_payload(state),
             "runtime": runtime,
+            "models": _model_registry(state).public_payload(),
             "shuttle_analysis": shuttle_analysis,
             "pose_analysis": pose_analysis,
             "api_schema_version": API_SCHEMA_VERSION,
