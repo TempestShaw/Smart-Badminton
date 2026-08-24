@@ -38,6 +38,7 @@ from .geometry import CourtGeometry
 from .hybrid import fuse_shuttle_detections
 from .io import load_rallies, read_rows, resolve_ffmpeg
 from .model import predict_model
+from .model_assets import resolve_model
 from .model_registry import ModelRegistry
 from .phase_examples import capture_phase_examples
 from .pose_overlay import render_pose_overlay
@@ -256,6 +257,10 @@ def _ground_truth_path(library: Path, video: Path) -> Path:
     return ProjectLayout.for_video(library, video).ground_truth
 
 
+def _latest_auto_cut_path(library: Path, video: Path) -> Path:
+    return ProjectLayout.for_video(library, video).latest_auto_cut
+
+
 def _timeline_has_segments(path: Path) -> bool:
     try:
         return path.exists() and bool(read_rows(path))
@@ -277,9 +282,19 @@ def _ensure_working_timeline(library: Path, video: Path) -> Path:
     if timeline.exists():
         return timeline
     timeline.parent.mkdir(parents=True, exist_ok=True)
-    ground_truth = _ground_truth_path(library, video)
-    if ground_truth.exists():
-        shutil.copy2(ground_truth, timeline)
+    seed = next(
+        (
+            candidate
+            for candidate in (
+                _latest_auto_cut_path(library, video),
+                _ground_truth_path(library, video),
+            )
+            if candidate.exists()
+        ),
+        None,
+    )
+    if seed is not None:
+        shutil.copy2(seed, timeline)
         timeline.chmod(timeline.stat().st_mode | 0o200)
     else:
         _save_segments(timeline, [])
@@ -399,6 +414,7 @@ def _library_payload(state: StudioState) -> dict[str, Any]:
                 "size_bytes": video.stat().st_size,
                 "proxy_available": _proxy_for(video, library) is not None,
                 "timeline_available": _timeline_has_segments(_working_timeline_path(library, video)),
+                "latest_auto_cut_available": _timeline_has_segments(_latest_auto_cut_path(library, video)),
                 "ground_truth_available": _ground_truth_path(library, video).exists(),
                 "completed_marker": _project_has_completed_marker(library, video),
                 "active": video.resolve() == state.video.resolve(),
@@ -410,6 +426,21 @@ def _library_payload(state: StudioState) -> dict[str, Any]:
 
 def _analysis_directory(library: Path, video: Path) -> Path:
     return ProjectLayout.for_video(library, video).analysis.root
+
+
+def _vision_features_path(analysis_root: Path) -> Path:
+    return analysis_root / "vision-features.csv"
+
+
+def _visual_evidence_features_path(analysis_root: Path) -> Path:
+    vision_features = _vision_features_path(analysis_root)
+    return vision_features if vision_features.exists() else analysis_root / "smart-features.csv"
+
+
+def _preserve_state_features(state_features: Path, vision_features: Path) -> None:
+    """Seed a new project once without replacing an existing state-model input."""
+    if not state_features.exists() and vision_features.exists():
+        shutil.copy2(vision_features, state_features)
 
 
 def _shuttle_annotations_path(library: Path, video: Path) -> Path:
@@ -693,7 +724,7 @@ def _save_calibration(state: StudioState, payload: dict[str, Any]) -> tuple[Path
 def _build_analytics_payload(state: StudioState) -> dict[str, Any]:
     library = state.library or state.video.parent
     analysis_root = _analysis_directory(library, state.video)
-    features = analysis_root / "smart-features.csv"
+    features = _visual_evidence_features_path(analysis_root)
     if not features.exists() or not state.rallies.exists():
         return {"available": False, "reason": "Analyze the video and create a rally timeline first."}
     output = analysis_root / "rally-actions.csv"
@@ -768,6 +799,7 @@ def _analytics_payload(state: StudioState) -> dict[str, Any]:
         state.rallies,
         state.config,
         analysis_root / "smart-features.csv",
+        _vision_features_path(analysis_root),
         analysis_root / "rally-probabilities.csv",
         analysis_root / "audio-events.csv",
         analysis_root / "shuttle-track.csv",
@@ -783,7 +815,7 @@ def _serve_observations(state: StudioState, evidence: dict[str, Any]) -> list[di
         return []
     rallies = load_rallies(state.rallies)
     analysis_root = _analysis_directory(state.library or state.video.parent, state.video)
-    features_path = analysis_root / "smart-features.csv"
+    features_path = _visual_evidence_features_path(analysis_root)
     trajectory_path = analysis_root / "shuttle-track.csv"
     if not features_path.exists() or not trajectory_path.exists():
         return []
@@ -946,7 +978,7 @@ def _boolean_spans(times: list[float], values: Any) -> list[list[float]]:
 
 def _build_evidence_payload(state: StudioState) -> dict[str, Any]:
     analysis_root = _analysis_directory(state.library or state.video.parent, state.video)
-    features_path = analysis_root / "smart-features.csv"
+    features_path = _visual_evidence_features_path(analysis_root)
     probabilities_path = analysis_root / "rally-probabilities.csv"
     trajectory_path = analysis_root / "shuttle-track.csv"
     contacts_path = analysis_root / "rally-contacts.csv"
@@ -1042,6 +1074,7 @@ def _evidence_payload(state: StudioState) -> dict[str, Any]:
     analysis_root = _analysis_directory(state.library or state.video.parent, state.video)
     paths = (
         analysis_root / "smart-features.csv",
+        _vision_features_path(analysis_root),
         analysis_root / "rally-probabilities.csv",
         analysis_root / "shuttle-track.csv",
         analysis_root / "rally-contacts.csv",
@@ -1207,7 +1240,7 @@ def _build_shuttle_status_payload(state: StudioState) -> dict[str, Any]:
     analysis_root = _analysis_directory(library, state.video)
     raw_path = analysis_root / "shuttle-raw.csv"
     trajectory_path = analysis_root / "shuttle-track.csv"
-    features_path = analysis_root / "smart-features.csv"
+    features_path = _visual_evidence_features_path(analysis_root)
     annotations_path = _shuttle_annotations_path(library, state.video)
     detection_metadata_path = _shuttle_detection_metadata_path(analysis_root)
     accepted_rows = []
@@ -1287,6 +1320,7 @@ def _shuttle_status_payload(state: StudioState) -> dict[str, Any]:
         analysis_root / "shuttle-raw.csv",
         analysis_root / "shuttle-track.csv",
         analysis_root / "smart-features.csv",
+        _vision_features_path(analysis_root),
         _shuttle_annotations_path(library, state.video),
         _shuttle_detection_metadata_path(analysis_root),
     )
@@ -1329,8 +1363,6 @@ def _persist_analysis_status(studio_state: StudioState, force: bool = False) -> 
         temporary.replace(path)
         studio_state.runtime_cache["analysis_status_write"] = now
     except OSError:
-        # Progress visibility must never become a new reason for analysis to
-        # fail on a read-only or temporarily unavailable library directory.
         return
 
 
@@ -1403,13 +1435,20 @@ def _make_proxy(state: StudioState, library: Path, video: Path) -> Path:
     return proxy
 
 
-def _analyze_video(state: StudioState, library: Path, video: Path, index: int, total: int) -> dict[str, Any]:
+def _analyze_video(
+    state: StudioState,
+    library: Path,
+    video: Path,
+    index: int,
+    total: int,
+) -> dict[str, Any]:
     if state.config is None or state.model is None:
         raise ValueError("Automatic analysis requires both a court config and a trained model")
     analysis_root = _analysis_directory(library, video)
     analysis_root.mkdir(parents=True, exist_ok=True)
     audio_csv = analysis_root / "audio-events.csv"
     features_csv = analysis_root / "smart-features.csv"
+    vision_features_csv = _vision_features_path(analysis_root)
     probabilities_csv = analysis_root / "rally-probabilities.csv"
     automatic_csv = analysis_root / "rallies-auto.csv"
     shuttle_raw_csv = analysis_root / "shuttle-raw.csv"
@@ -1451,21 +1490,23 @@ def _analyze_video(state: StudioState, library: Path, video: Path, index: int, t
             _run_shuttle_trajectory(
                 shuttle_raw_csv,
                 shuttle_track_csv,
-                features_csv if features_csv.exists() else None,
+                _visual_evidence_features_path(analysis_root)
+                if _visual_evidence_features_path(analysis_root).exists()
+                else None,
                 video,
                 shuttle_annotations_csv,
                 state.config,
             )
     stage("features", "正在理解球场、球员动作与运动轨迹", 0.30)
     feature_columns = set()
-    if features_csv.exists():
-        with features_csv.open(encoding="utf-8-sig") as existing_features:
+    if vision_features_csv.exists():
+        with vision_features_csv.open(encoding="utf-8-sig") as existing_features:
             feature_columns = set(next(csv.reader(existing_features), []))
-    if not features_csv.exists() or not POSE_ASSOCIATION_FIELDS.issubset(feature_columns):
+    if not vision_features_csv.exists() or not POSE_ASSOCIATION_FIELDS.issubset(feature_columns):
         extract_features(
             video,
             state.config,
-            features_csv,
+            vision_features_csv,
             audio_csv,
             shuttle_track_csv if shuttle_track_csv.exists() else None,
             state.pose_model,
@@ -1482,21 +1523,28 @@ def _analyze_video(state: StudioState, library: Path, video: Path, index: int, t
     if (
         _effective_shuttle_mode(state) is not None
         and shuttle_raw_csv.exists()
-        and _trajectory_needs_refinement(features_csv, shuttle_track_csv, shuttle_annotations_csv)
+        and _trajectory_needs_refinement(vision_features_csv, shuttle_track_csv, shuttle_annotations_csv)
     ):
         stage("shuttle-contact", "正在用球拍接触证据复核竞争轨迹", 0.83)
         _run_shuttle_trajectory(
             shuttle_raw_csv,
             shuttle_track_csv,
-            features_csv,
+            vision_features_csv,
             video,
             shuttle_annotations_csv,
             state.config,
         )
+    _preserve_state_features(features_csv, vision_features_csv)
     stage("predict", "正在用标准答案模型判断每一球", 0.84)
     predict_model(features_csv, state.model, probabilities_csv)
     stage("segment", "正在生成保守、不漏球的时间表", 0.94)
     adapter_path = _segmentation_adapter_path(library, video)
+    model_adapter_path = state.model.with_suffix(".adapter.json")
+    selected_adapter = adapter_path if adapter_path.exists() else model_adapter_path
+    trajectory_policy = "integrated"
+    if model_adapter_path.exists():
+        model_profile = json.loads(model_adapter_path.read_text(encoding="utf-8"))
+        trajectory_policy = str(model_profile.get("trajectory_policy", trajectory_policy))
     intervals = segment_rallies(
         features_csv,
         probabilities_csv,
@@ -1509,7 +1557,8 @@ def _analyze_video(state: StudioState, library: Path, video: Path, index: int, t
         maximum_internal_gap=float(state.analysis_options["maximum_internal_gap"]),
         suppress_handoffs=bool(state.analysis_options["suppress_handoffs"]),
         shuttle_trajectory_csv=shuttle_track_csv if shuttle_track_csv.exists() else None,
-        adapter=adapter_path if adapter_path.exists() else None,
+        adapter=selected_adapter if selected_adapter.exists() else None,
+        trajectory_policy=trajectory_policy,
     )
     metadata = _video_metadata(video)
     public_rows = _public_segments(automatic_csv)
@@ -2114,7 +2163,11 @@ def create_studio_app(state: StudioState):
         }
         rally_ids = sorted(
             review_rallies
-            | {int(row["rally"]) for row in score.get("rallies", []) if row.get("winner") == "unknown"}
+            | {
+                int(row["rally"])
+                for row in score.get("rallies", [])
+                if row.get("winner_source") == "unresolved"
+            }
         )
         if not rally_ids:
             state.analysis_status = {
@@ -2309,7 +2362,7 @@ def create_studio_app(state: StudioState):
         analysis_root.mkdir(parents=True, exist_ok=True)
         raw_path = analysis_root / "shuttle-raw.csv"
         trajectory_path = analysis_root / "shuttle-track.csv"
-        features_path = analysis_root / "smart-features.csv"
+        features_path = _visual_evidence_features_path(analysis_root)
         annotations_path = _shuttle_annotations_path(library_root, video)
         try:
             detection_result: dict[str, Any] = {"reused": True, "output": str(raw_path)}
@@ -2499,7 +2552,8 @@ def create_studio_app(state: StudioState):
             if run_shuttle:
                 raw_path = analysis_root / "shuttle-raw.csv"
                 trajectory_path = analysis_root / "shuttle-track.csv"
-                features_path = analysis_root / "smart-features.csv"
+                state_features_path = analysis_root / "smart-features.csv"
+                features_path = _vision_features_path(analysis_root)
                 audio_path = analysis_root / "audio-events.csv"
                 annotations_path = _shuttle_annotations_path(library_root, video)
                 detection_result: dict[str, Any] = {"reused": True, "output": str(raw_path)}
@@ -2576,6 +2630,7 @@ def create_studio_app(state: StudioState):
                         None,
                         association_progress,
                     )
+                    _preserve_state_features(state_features_path, features_path)
                 _set_analysis_status(
                     state,
                     state="running",
@@ -2806,6 +2861,11 @@ def run_studio(
             raise ValueError(f"No supported video files found in: {library}")
         video = videos[0]
     library = (library or video.parent).resolve()
+    model = resolve_model(model, "rally", library)
+    pose_model = resolve_model(pose_model, "pose", library)
+    shuttle_model = resolve_model(shuttle_model, "shuttle", library)
+    tracknet_model = resolve_model(tracknet_model, "tracknet", library)
+    inpaint_model = resolve_model(inpaint_model, "inpaint", library)
     rallies = rallies or _ensure_working_timeline(library, video)
     output_directory = output.expanduser().resolve().parent if output is not None else None
     output = output.expanduser().resolve() if output is not None else _default_output(library, video)

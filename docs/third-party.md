@@ -1,14 +1,19 @@
 # Third-party software and models
 
-This repository does not vendor upstream source trees or model weights.
+The source repository does not vendor upstream source trees. The GitHub Release model bundle contains verified model
+weights with checksum-bound manifests and license copies.
 
 ## Ultralytics
 
-Player pose and the optional shuttle detector dynamically import the `ultralytics` package only when those features are requested. [Ultralytics documents AGPL-3.0 and Enterprise options](https://github.com/ultralytics/ultralytics/blob/main/docs/en/index.md). Users are responsible for choosing compatible terms. Do not copy an Ultralytics checkpoint into a release without reviewing its terms and adding the checksum-bound `<checkpoint>.license.json` sidecar checked by `smart-badminton doctor`.
+Player pose and shuttle detection use the AGPL-3.0 Ultralytics runtime. The complete model bundle includes
+`yolo11n-pose.pt` and the Good-Badminton shuttle checkpoint with AGPL-3.0 notices. Smart Badminton publishes its full
+source and does not provide an Enterprise-licensed build.
 
 ## Good-Badminton
 
-The exploratory [Good-Badminton repository](https://github.com/yo-WASSUP/Good-Badminton) carries Apache-2.0 source licensing. Its README points to separately released OpenMMLab-ecosystem weights, so the repository license must not be assumed to prove every checkpoint's redistribution terms. This project does not copy its source or weights.
+The [Good-Badminton release](https://github.com/yo-WASSUP/Good-Badminton/releases/tag/v0.1.0) declares
+`yolo11s-ball.pt` Apache-2.0. Its embedded Ultralytics metadata declares AGPL-3.0, so this project applies the more
+restrictive AGPL-3.0 terms to the bundled copy.
 
 ## Checkpoint and dataset gate
 
@@ -16,4 +21,6 @@ The exploratory [Good-Badminton repository](https://github.com/yo-WASSUP/Good-Ba
 
 ## TrackNetV3
 
-[TrackNetV3](https://github.com/qaz812345/TrackNetV3) is MIT licensed. This project contains an adapted, checkpoint-compatible runtime and records that attribution in source and documentation. Upstream checkpoints remain local downloads under ignored model or `ThirdParty` directories; verify checkpoint redistribution rights before publishing them.
+[TrackNetV3](https://github.com/qaz812345/TrackNetV3) is MIT licensed. This project contains an adapted,
+checkpoint-compatible runtime and bundles the two checkpoints linked by its official README. The original copyright
+and MIT license are retained.

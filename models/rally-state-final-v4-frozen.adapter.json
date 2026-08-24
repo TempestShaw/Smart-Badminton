@@ -1,0 +1,21 @@
+{
+  "schema_version": 1,
+  "trajectory_policy": "protect_only",
+  "parameters": {
+    "start_threshold": 0.56,
+    "keep_threshold": 0.3,
+    "preroll": 0.7,
+    "uncertain_preroll": 0.0,
+    "postroll": 0.55,
+    "end_pending": 0.55,
+    "maximum_internal_gap": 1.2,
+    "soft_gap_seconds": 0.0,
+    "gap_penalty": 0.2,
+    "orphan_action_probability_ceiling": 0.75,
+    "orphan_action_max_duration": 0.0,
+    "orphan_neighbor_gap": 3.0,
+    "split_handoff_before_serve": true,
+    "interval_quality": null,
+    "start_quality": null
+  }
+}

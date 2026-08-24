@@ -1,12 +1,21 @@
-# Model files
+# Models
 
-Model weights are optional and are not included by default.
+Each GitHub Release contains a separate `smart-badminton-models-<version>.zip`. Extract it beside the repository or
+installed launcher; Studio discovers the `models/` directory automatically. The same verified files can be installed
+with:
 
-To publish a checkpoint:
+```bash
+smart-badminton install-models --directory models
+```
 
-1. Add `<checkpoint>.license.json` with its source, license, SHA-256 and `redistributable: true`.
-2. Confirm it with `smart-badminton doctor`.
-3. Add a named `.gitignore` exception for that checkpoint.
-4. Commit it through Git LFS.
+| File | Purpose | License |
+| --- | --- | --- |
+| `rally-state-final-v4-frozen.joblib` | Rally activity | Apache-2.0 |
+| `yolo11n-pose.pt` | Player pose | AGPL-3.0-only |
+| `yolo11s-ball.pt` | Shuttle detection | AGPL-3.0-only |
+| `TrackNet_best.pt` | Shuttle sequence tracking | MIT |
+| `InpaintNet_best.pt` | Short trajectory repair | MIT |
 
-The Python wheel never bundles model weights.
+Every checkpoint has a checksum-bound `.license.json`. See [MODEL_CARD.md](MODEL_CARD.md) and
+[`THIRD_PARTY_NOTICES.md`](../THIRD_PARTY_NOTICES.md). The Python wheel stays small; the complete model ZIP is the
+offline runtime bundle.

@@ -10,6 +10,9 @@ def test_match_project_layout_keeps_user_and_generated_files_separate(tmp_path: 
 
     assert layout.root == tmp_path / "Match5"
     assert layout.working_timeline == tmp_path / "Match5" / "Metadata" / "rallies-studio-review.csv"
+    assert layout.latest_auto_cut == tmp_path / "Latest_Auto_Cut" / "Match5-rallies.csv"
+    assert layout.analysis.features == tmp_path / "Match5" / "Analysis" / "smart-features.csv"
+    assert layout.analysis.vision_features == tmp_path / "Match5" / "Analysis" / "vision-features.csv"
     assert layout.analysis.shuttle_track == tmp_path / "Match5" / "Analysis" / "shuttle-track.csv"
     assert layout.analysis.score_labeling == tmp_path / "Match5" / "Analysis" / "Score_Labeling"
     assert layout.default_output == tmp_path / "Match5" / "Edited" / "Match5_final_1080p60.mp4"

@@ -66,6 +66,14 @@ def _coverage_rate(report: dict) -> float:
     return report["truth_rallies_with_at_least_98_percent_coverage"] / max(1, report["truth_rallies"])
 
 
+def _segmentation_profile(model_path: Path) -> tuple[Path | None, str]:
+    profile = model_path.with_suffix(".adapter.json")
+    if not profile.exists():
+        return None, "integrated"
+    payload = json.loads(profile.read_text(encoding="utf-8"))
+    return profile, str(payload.get("trajectory_policy", "integrated"))
+
+
 def regression_gate(
     dataset_path: Path,
     baseline_model: Path,
@@ -79,6 +87,7 @@ def regression_gate(
     manifest = json.loads(dataset_path.read_text(encoding="utf-8"))
     source_config = {str(source["id"]): source for source in manifest["sources"]}
     loaded, feature_names, matrices, labels = _load_multi_dataset(dataset_path)
+    segmentation_adapter, trajectory_policy = _segmentation_profile(baseline_model)
     folds = []
 
     with tempfile.TemporaryDirectory(prefix="smart-badminton-regression-") as temporary_directory:
@@ -114,13 +123,36 @@ def regression_gate(
                 candidate_probability,
                 candidate_timeline,
                 shuttle_trajectory_csv=trajectory,
+                adapter=segmentation_adapter,
+                trajectory_policy=trajectory_policy,
             )
-            predict_model(held_out["features"], baseline_model, baseline_probability)
+            baseline_features_value = source_config[held_out["id"]].get("baseline_features")
+            baseline_features = (
+                Path(str(baseline_features_value)).resolve()
+                if baseline_features_value and Path(str(baseline_features_value)).is_absolute()
+                else (dataset_path.parent / str(baseline_features_value)).resolve()
+                if baseline_features_value
+                else held_out["features"]
+            )
+            baseline_adapter_value = source_config[held_out["id"]].get("baseline_adapter")
+            baseline_adapter = (
+                Path(str(baseline_adapter_value)).resolve()
+                if baseline_adapter_value and Path(str(baseline_adapter_value)).is_absolute()
+                else (dataset_path.parent / str(baseline_adapter_value)).resolve()
+                if baseline_adapter_value
+                else segmentation_adapter
+            )
+            baseline_trajectory_policy = str(
+                source_config[held_out["id"]].get("baseline_trajectory_policy", trajectory_policy)
+            )
+            predict_model(baseline_features, baseline_model, baseline_probability)
             segment_rallies(
-                held_out["features"],
+                baseline_features,
                 baseline_probability,
                 baseline_timeline,
                 shuttle_trajectory_csv=trajectory,
+                adapter=baseline_adapter,
+                trajectory_policy=baseline_trajectory_policy,
             )
             candidate_report = evaluate_rallies(candidate_timeline, held_out["rallies"])
             baseline_report = evaluate_rallies(baseline_timeline, held_out["rallies"])
@@ -153,6 +185,10 @@ def regression_gate(
                     "training_sources": [
                         source["id"] for index, source in enumerate(loaded) if index != held_out_index
                     ],
+                    "candidate_features": str(held_out["features"]),
+                    "baseline_features": str(baseline_features),
+                    "baseline_adapter": str(baseline_adapter) if baseline_adapter else None,
+                    "baseline_trajectory_policy": baseline_trajectory_policy,
                     "baseline": baseline_report,
                     "candidate": candidate_report,
                     "passed": not failures,
@@ -167,6 +203,8 @@ def regression_gate(
         "schema_version": 1,
         "dataset": str(dataset_path),
         "baseline_model": str(baseline_model),
+        "segmentation_profile": str(segmentation_adapter) if segmentation_adapter else None,
+        "trajectory_policy": trajectory_policy,
         "model_family": model_family,
         "truth_locks": truth_locks,
         "folds": folds,

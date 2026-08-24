@@ -89,6 +89,57 @@ def _adaptive_threshold(
     return float(np.clip(np.percentile(samples, percentile) * scale, minimum, maximum))
 
 
+def _stationary_track_splits(
+    points: list[tuple[float, float, float, float, float, bool]],
+    minimum_duration: float = 0.45,
+) -> list[int]:
+    observed: list[tuple[int, tuple[float, float, float, float, float, bool]]] = []
+    for index, point in enumerate(points):
+        if not point[5] or (observed and point[0] <= observed[-1][1][0] + 1e-6):
+            continue
+        observed.append((index, point))
+    if len(observed) < 3:
+        return []
+    samples = [point for _index, point in observed]
+    times = np.asarray([point[0] for point in samples], dtype=float)
+    widths = np.asarray([point[3] for point in samples], dtype=float)
+    heights = np.asarray([point[4] for point in samples], dtype=float)
+    if np.all(widths > 0) and np.all(heights > 0):
+        coordinates = np.column_stack(
+            [
+                np.asarray([point[1] for point in samples], dtype=float) / widths,
+                np.asarray([point[2] for point in samples], dtype=float) / heights,
+            ]
+        )
+        speed_threshold = 0.004
+    else:
+        coordinates = np.column_stack(
+            [
+                np.asarray([point[1] for point in samples], dtype=float),
+                np.asarray([point[2] for point in samples], dtype=float),
+            ]
+        )
+        speed_threshold = 8.0
+    speeds = np.linalg.norm(np.diff(coordinates, axis=0), axis=1) / np.maximum(
+        np.diff(times), 1e-6
+    )
+    stationary = speeds < speed_threshold
+    boundaries: set[int] = set()
+    run_start = 0
+    while run_start < len(stationary):
+        if not stationary[run_start]:
+            run_start += 1
+            continue
+        run_end = run_start
+        while run_end + 1 < len(stationary) and stationary[run_end + 1]:
+            run_end += 1
+        if times[run_end + 1] - times[run_start] >= minimum_duration:
+            boundaries.add(observed[run_start + 1][0])
+            boundaries.add(observed[run_end + 1][0])
+        run_start = run_end + 1
+    return sorted(boundary for boundary in boundaries if 0 < boundary < len(points))
+
+
 def _trajectory_signals(
     times: np.ndarray, trajectory_csv: Path | None
 ) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray, np.ndarray, list[tuple[float, float]]]:
@@ -134,6 +185,7 @@ def _trajectory_signals(
             for index in range(1, len(ordered))
             if ordered[index][0] - ordered[index - 1][0] > 0.9
         ]
+        split_points = sorted(set(split_points + _stationary_track_splits(ordered)))
         for component_end in [*split_points, len(ordered)]:
             component = ordered[component_start:component_end]
             component_start = component_end
@@ -407,10 +459,20 @@ def build_rally_evidence(data: pd.DataFrame, trajectory_csv: Path | None = None)
 
     between_points = np.zeros(len(times), dtype=bool)
     awaiting_formal_serve = False
+    between_points_started = -np.inf
+    between_points_timeout = 4.0
     for index in range(len(times)):
         if landing[index]:
             awaiting_formal_serve = True
-        if formal_serve[index] or trajectory_serve_start[index]:
+            between_points_started = float(times[index])
+        if (
+            formal_serve[index]
+            or trajectory_serve_start[index]
+            or (
+                awaiting_formal_serve
+                and float(times[index]) - between_points_started > between_points_timeout
+            )
+        ):
             awaiting_formal_serve = False
         between_points[index] = awaiting_formal_serve
 

@@ -11,9 +11,11 @@ permissions:
 jobs:
   github-release:
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    timeout-minutes: 35
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          lfs: true
       - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
         with:
           python-version: "3.12"
@@ -38,7 +40,16 @@ jobs:
       - run: python scripts/repository_guard.py
       - run: pytest -q
       - run: python scripts/build_wheel.py --output-directory dist
+      - name: Download verified vision models
+        run: smart-badminton install-models --directory models
+      - name: Build complete model bundle
+        run: python scripts/build_model_bundle.py --output-directory dist
       - name: Publish GitHub Release
         env:
           GH_TOKEN: ${{ github.token }}
-        run: gh release create "$GITHUB_REF_NAME" dist/*.whl --generate-notes --verify-tag
+        run: >-
+          gh release create "$GITHUB_REF_NAME"
+          dist/*.whl
+          dist/smart-badminton-models-*.zip
+          --generate-notes
+          --verify-tag

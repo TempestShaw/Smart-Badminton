@@ -17,6 +17,7 @@ from .features import extract_features
 from .geometry import CourtGeometry, draw_geometry_preview
 from .hybrid import fuse_shuttle_detections
 from .model import MODEL_FAMILIES, benchmark_multi_models, predict_model, train_model, train_multi_model
+from .model_assets import find_model, install_models
 from .regression import regression_gate, train_guarded_candidate
 from .render import render_rallies
 from .review import render_boundary_reviews
@@ -43,21 +44,24 @@ def main() -> None:
     commands = parser.add_subparsers(dest="command", required=True)
     doctor = commands.add_parser("doctor")
     doctor.add_argument("--config", type=path)
-    doctor.add_argument("--model", type=path)
-    doctor.add_argument("--pose-model", type=path)
-    doctor.add_argument("--shuttle-model", type=path)
+    doctor.add_argument("--model", type=path, default=find_model("rally"))
+    doctor.add_argument("--pose-model", type=path, default=find_model("pose"))
+    doctor.add_argument("--shuttle-model", type=path, default=find_model("shuttle"))
     doctor.add_argument("--ffmpeg", type=path)
     doctor.add_argument("--encoder", default="auto")
     doctor.add_argument("--packages", type=path)
-    doctor.add_argument("--tracknet-model", type=path)
-    doctor.add_argument("--inpaint-model", type=path)
+    doctor.add_argument("--tracknet-model", type=path, default=find_model("tracknet"))
+    doctor.add_argument("--inpaint-model", type=path, default=find_model("inpaint"))
     initialize = commands.add_parser("init-project")
     initialize.add_argument("--directory", type=path, required=True)
+    model_install = commands.add_parser("install-models")
+    model_install.add_argument("--directory", type=path, default=Path.cwd() / "models")
+    model_install.add_argument("--force", action="store_true")
     shuttle_audit = commands.add_parser("audit-shuttle-dataset")
     shuttle_audit.add_argument("--manifest", type=path, required=True)
     shuttle_train = commands.add_parser("train-shuttle")
     shuttle_train.add_argument("--manifest", type=path, required=True)
-    shuttle_train.add_argument("--base-model", type=path, required=True)
+    shuttle_train.add_argument("--base-model", type=path, default=find_model("shuttle"))
     shuttle_train.add_argument("--output", type=path, required=True)
     shuttle_train.add_argument("--work-directory", type=path, required=True)
     shuttle_train.add_argument("--validation-camera")
@@ -81,7 +85,7 @@ def main() -> None:
     feature.add_argument("--output", type=path, required=True)
     feature.add_argument("--audio-events", type=path)
     feature.add_argument("--shuttle-detections", type=path)
-    feature.add_argument("--pose-model", type=path)
+    feature.add_argument("--pose-model", type=path, default=find_model("pose"))
     feature.add_argument("--packages", type=path)
     feature.add_argument("--fps", type=float)
     feature.add_argument("--start", type=float, default=0.0)
@@ -89,7 +93,7 @@ def main() -> None:
     shuttle = commands.add_parser("detect-shuttle")
     shuttle.add_argument("--video", type=path, required=True)
     shuttle.add_argument("--config", type=path, required=True)
-    shuttle.add_argument("--model", type=path, required=True)
+    shuttle.add_argument("--model", type=path, default=find_model("shuttle"))
     shuttle.add_argument("--packages", type=path)
     shuttle.add_argument("--output", type=path, required=True)
     shuttle.add_argument("--fps", type=float, default=15.0)
@@ -100,8 +104,8 @@ def main() -> None:
     tracknet = commands.add_parser("detect-tracknet")
     tracknet.add_argument("--video", type=path, required=True)
     tracknet.add_argument("--config", type=path, required=True)
-    tracknet.add_argument("--tracknet-model", type=path, required=True)
-    tracknet.add_argument("--inpaint-model", type=path)
+    tracknet.add_argument("--tracknet-model", type=path, default=find_model("tracknet"))
+    tracknet.add_argument("--inpaint-model", type=path, default=find_model("inpaint"))
     tracknet.add_argument("--packages", type=path)
     tracknet.add_argument("--output", type=path, required=True)
     tracknet.add_argument("--batch-size", type=int, default=4)
@@ -121,7 +125,7 @@ def main() -> None:
     tracknet_train.add_argument("--video", type=path, required=True)
     tracknet_train.add_argument("--config", type=path, required=True)
     tracknet_train.add_argument("--labels", type=path, required=True)
-    tracknet_train.add_argument("--base-model", type=path, required=True)
+    tracknet_train.add_argument("--base-model", type=path, default=find_model("tracknet"))
     tracknet_train.add_argument("--output", type=path, required=True)
     tracknet_train.add_argument("--epochs", type=int, default=8)
     tracknet_train.add_argument("--batch-size", type=int, default=2)
@@ -173,7 +177,7 @@ def main() -> None:
     guarded_train.add_argument("--family", choices=MODEL_FAMILIES, default="hist_gradient_boosting")
     predict = commands.add_parser("predict")
     predict.add_argument("--features", type=path, required=True)
-    predict.add_argument("--model", type=path, required=True)
+    predict.add_argument("--model", type=path, default=find_model("rally"))
     predict.add_argument("--output", type=path, required=True)
     segment = commands.add_parser("segment")
     segment.add_argument("--features", type=path, required=True)
@@ -291,6 +295,12 @@ def main() -> None:
     studio.add_argument("--packages", type=path)
 
     args = parser.parse_args()
+
+    def require_model(value: Path | None, option: str) -> Path:
+        if value is None or not value.is_file():
+            parser.error(f"{option} is missing; run 'smart-badminton install-models' or pass an explicit path")
+        return value
+
     if args.command == "doctor":
         print(
             json.dumps(
@@ -311,6 +321,8 @@ def main() -> None:
         )
     elif args.command == "init-project":
         print(json.dumps(initialize_project(args.directory), ensure_ascii=False, indent=2))
+    elif args.command == "install-models":
+        print(json.dumps(install_models(args.directory, args.force), ensure_ascii=False, indent=2))
     elif args.command == "audit-shuttle-dataset":
         print(json.dumps(audit_shuttle_dataset(args.manifest), ensure_ascii=False, indent=2))
     elif args.command == "train-shuttle":
@@ -319,7 +331,7 @@ def main() -> None:
                 train_shuttle_model(
                     args.manifest,
                     args.output,
-                    args.base_model,
+                    require_model(args.base_model, "--base-model"),
                     args.work_directory,
                     args.validation_camera,
                     args.epochs,
@@ -361,7 +373,7 @@ def main() -> None:
                 detect_shuttle(
                     args.video,
                     args.config,
-                    args.model,
+                    require_model(args.model, "--model"),
                     args.packages,
                     args.output,
                     args.fps,
@@ -379,7 +391,7 @@ def main() -> None:
                 detect_tracknet(
                     args.video,
                     args.config,
-                    args.tracknet_model,
+                    require_model(args.tracknet_model, "--tracknet-model"),
                     args.output,
                     args.inpaint_model,
                     args.packages,
@@ -406,7 +418,7 @@ def main() -> None:
                     args.video,
                     args.config,
                     args.labels,
-                    args.base_model,
+                    require_model(args.base_model, "--base-model"),
                     args.output,
                     args.epochs,
                     args.batch_size,
@@ -473,7 +485,7 @@ def main() -> None:
             )
         )
     elif args.command == "predict":
-        predict_model(args.features, args.model, args.output)
+        predict_model(args.features, require_model(args.model, "--model"), args.output)
     elif args.command == "segment":
         result = segment_rallies(
             args.features,

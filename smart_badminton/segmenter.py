@@ -87,7 +87,8 @@ def _suppress_probable_handoffs(
     keep = [True] * len(intervals)
     for index, interval in enumerate(intervals):
         stats = statistics[index]
-        if stats["credible_start"]:
+        # A complete owned flight is positive evidence even without a recognized serve.
+        if stats["credible_start"] or (stats["complete_trajectory"] and not stats["between_points"]):
             continue
         previous_gap = interval.start - intervals[index - 1].end if index else math.inf
         next_gap = intervals[index + 1].start - interval.end if index + 1 < len(intervals) else math.inf
@@ -117,7 +118,8 @@ def _suppress_probable_handoffs(
         )
         near_another_point = min(previous_gap, next_gap) <= orphan_neighbor_gap
         orphan_action = (
-            near_another_point
+            orphan_action_max_duration > 0
+            and near_another_point
             and stats["duration"] <= orphan_action_max_duration
             and stats["maximum_probability"] < orphan_action_probability_ceiling
             and stats["audio_events"] <= 1
@@ -139,8 +141,9 @@ def _refine_handoff_and_serve_phases(
     """Split broad intervals at trajectory-backed formal serves."""
     refined: list[Interval] = []
     for interval in intervals:
+        # Only formal serves can split an active rally; tracklets may restart after occlusion.
         serve_indices = np.flatnonzero(
-            (evidence.formal_serve | evidence.trajectory_serve_start)
+            evidence.formal_serve
             & (times >= interval.start + 1.0)
             & (times <= interval.end - 0.8)
         )
@@ -176,6 +179,8 @@ def _refine_handoff_and_serve_phases(
                 or (len(flight_end_indices) and int(flight_end_indices[-1]) == marker_index)
             )
             if has_terminal_marker:
+                if not split_handoff_before_serve:
+                    continue
                 boundary_indices = np.flatnonzero((times >= marker_time) & (times <= next_start))
                 if len(boundary_indices):
                     quiet_score = (
@@ -252,6 +257,71 @@ def _refine_handoff_and_serve_phases(
     return refined
 
 
+def _protect_trajectory_boundaries(
+    intervals: list[Interval],
+    times: np.ndarray,
+    evidence: RallyEvidence,
+    postroll: float,
+    maximum_extension: float = 1.5,
+) -> list[Interval]:
+    """Extend an existing timeline without creating, deleting, or merging clips."""
+    direct_flight = evidence.trajectory_visible | evidence.trajectory_descending
+    for index, interval in enumerate(intervals):
+        next_start = intervals[index + 1].start if index + 1 < len(intervals) else float(times[-1])
+        anchor = np.flatnonzero(
+            (times >= interval.end - 0.35)
+            & (times <= interval.end + 0.15)
+            & evidence.protected_flight
+        )
+        if not len(anchor):
+            continue
+        boundary_reacquired = np.any(
+            evidence.trajectory_flight_start
+            & (times >= interval.end - 0.20)
+            & (times <= interval.end + 0.05)
+        )
+        if not boundary_reacquired:
+            continue
+        limit = min(interval.end + maximum_extension, next_start)
+        terminal_candidates = np.flatnonzero(
+            evidence.trajectory_flight_end
+            & (times > interval.end - 0.05)
+            & (times <= limit)
+        )
+        terminal = next(
+            (
+                int(candidate)
+                for candidate in terminal_candidates
+                if np.any(
+                    evidence.trajectory_descending
+                    & (times >= float(times[candidate]) - 0.30)
+                    & (times <= float(times[candidate]) + 0.10)
+                )
+                and np.any(
+                    direct_flight
+                    & (times >= interval.end - 0.50)
+                    & (times <= float(times[candidate]) + 0.10)
+                )
+            ),
+            None,
+        )
+        if terminal is None:
+            continue
+        protected_end = min(next_start, float(times[terminal]) + postroll)
+        if protected_end <= interval.end + 1e-6:
+            continue
+        interval.end = protected_end
+        interval.end_locked = bool(
+            np.any(
+                evidence.landing_candidate
+                & (times >= float(times[terminal]))
+                & (times <= protected_end + 1e-6)
+            )
+        )
+        interval.reason += "; trajectory protected end"
+    return intervals
+
+
 def segment_rallies(
     features_csv: Path,
     probabilities_csv: Path,
@@ -265,7 +335,10 @@ def segment_rallies(
     suppress_handoffs: bool = True,
     shuttle_trajectory_csv: Path | None = None,
     adapter: SegmentationAdapter | Path | None = None,
+    trajectory_policy: str = "integrated",
 ) -> list[Interval]:
+    if trajectory_policy not in {"integrated", "protect_only"}:
+        raise ValueError("trajectory_policy must be 'integrated' or 'protect_only'")
     if isinstance(adapter, Path):
         adapter = SegmentationAdapter.from_json(adapter)
     if adapter is not None:
@@ -290,7 +363,8 @@ def segment_rallies(
     fps = 1.0 / max(float(np.median(np.diff(times))), 1e-3)
     probability = data.rally_probability.to_numpy(dtype=float)
     audio = data.audio_hit_score
-    fused = build_rally_evidence(data, shuttle_trajectory_csv)
+    integrated_trajectory = shuttle_trajectory_csv if trajectory_policy == "integrated" else None
+    fused = build_rally_evidence(data, integrated_trajectory)
     evidence = fused.activity
     boundary_evidence = np.maximum(evidence, fused.protected_flight.astype(float) * 0.95)
     active_seed = probability >= start_threshold
@@ -298,7 +372,13 @@ def segment_rallies(
         (evidence >= 0.22) | (_rolling_max(pd.Series(probability), round(1.0 * fps)) >= 0.78)
     )
     trajectory_start = fused.trajectory_serve_start | fused.trajectory_contact_start
-    unqualified_start = (model_start | fused.trajectory_contact_start) & ~fused.between_points
+    recent_handoff = _rolling_max(
+        pd.Series(fused.handoff_candidate.astype(float)), round(1.5 * fps)
+    ) > 0
+    handoff_phase = fused.between_points & recent_handoff
+    unqualified_start = (model_start & ~handoff_phase) | (
+        fused.trajectory_contact_start & ~fused.between_points
+    )
     start_signal = unqualified_start | fused.formal_serve | fused.trajectory_serve_start
     intervals: list[Interval] = []
     active = False
@@ -354,10 +434,30 @@ def segment_rallies(
             last_keep = float(time_seconds)
             keep = True
         elif landing_locked:
-            false_terminal = (
-                float(time_seconds) - landing_time <= 0.35
+            landing_age = float(time_seconds) - landing_time
+            recent_probability_start = max(0, index - max(1, round(0.35 * fps)))
+            continuous_model_play = (
+                not (adapter is not None and adapter.split_handoff_before_serve)
+                and not recent_handoff[index]
                 and probability[index] >= 0.85
-                and fused.player_engagement[index] >= 0.40
+                and float(np.min(probability[recent_probability_start : index + 1])) >= 0.72
+            )
+            false_terminal = (
+                landing_age <= max(1.2, end_pending)
+                and not fused.formal_serve[index]
+                and (
+                    continuous_model_play
+                    or (
+                        not fused.between_points[index]
+                        and (
+                            fused.protected_flight[index]
+                            or (
+                                probability[index] >= 0.78
+                                and fused.player_engagement[index] >= 0.28
+                            )
+                        )
+                    )
+                )
             )
             if false_terminal:
                 landing_locked = False
@@ -365,14 +465,15 @@ def segment_rallies(
                 keep = False
         if keep:
             last_keep = time_seconds
-        if time_seconds - last_keep >= end_pending:
+        confirmation_pending = max(1.2, end_pending) if landing_locked else end_pending
+        if time_seconds - last_keep >= confirmation_pending:
             end = min(float(times[-1]), last_keep + postroll)
             minimum_duration = 0.55 if trajectory_started and landing_locked else 1.5
             if end - start >= minimum_duration:
                 confidence = float(
                     np.mean(sorted(collected_probabilities, reverse=True)[: max(1, len(collected_probabilities) // 3)])
                 )
-                recent_start = max(0, index - max(1, round((end_pending + postroll) * fps)))
+                recent_start = max(0, index - max(1, round((confirmation_pending + postroll) * fps)))
                 if np.any(fused.landing_candidate[recent_start : index + 1]):
                     end_reason = "trajectory landing and player stop confirmed"
                 elif np.any(fused.trajectory_occluded[recent_start : index + 1]):
@@ -417,7 +518,7 @@ def segment_rallies(
             audio.to_numpy(dtype=float),
             fused,
             adapter.orphan_action_probability_ceiling if adapter is not None else 0.75,
-            adapter.orphan_action_max_duration if adapter is not None else 5.0,
+            adapter.orphan_action_max_duration if adapter is not None else 0.0,
             adapter.orphan_neighbor_gap if adapter is not None else 3.0,
         )
         intervals = _refine_handoff_and_serve_phases(
@@ -514,6 +615,13 @@ def segment_rallies(
             probability,
             fused,
             adapter.start_quality,
+        )
+    if trajectory_policy == "protect_only" and shuttle_trajectory_csv is not None:
+        merged = _protect_trajectory_boundaries(
+            merged,
+            times,
+            build_rally_evidence(data, shuttle_trajectory_csv),
+            postroll,
         )
     rows = []
     for number, interval in enumerate(merged, 1):

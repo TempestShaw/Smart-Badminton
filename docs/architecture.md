@@ -55,6 +55,8 @@ Hybrid tracking, the cut state machine and per-video adapters are algorithms or 
 
 ```text
 library/
+  Latest_Auto_Cut/                    latest validated automatic timelines
+    MatchN-rallies.csv
   MatchN/
     Original/                         optional source-video folder
     *.mp4                             source video may also be here
@@ -78,7 +80,6 @@ library/
   .smart-badminton/
     models/                            current library-wide learned rules
     jobs/                              durable job state
-    archive/                           superseded runtime artifacts
 
 repo/
   models/                              user-supplied local checkpoints

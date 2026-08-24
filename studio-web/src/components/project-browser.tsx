@@ -73,7 +73,8 @@ export function ProjectBrowser({ studio }: { studio: StudioController }) {
               {(studio.library?.videos ?? []).map((item) => {
                 const tags = [formatFileSize(item.size_bytes)];
                 if (item.proxy_available) tags.push("快速预览");
-                if (item.ground_truth_available) tags.push("标准答案");
+                if (item.latest_auto_cut_available) tags.push("最新自动剪辑");
+                else if (item.ground_truth_available) tags.push("标准答案");
                 else if (item.completed_marker) tags.push("已剪");
                 else if (item.timeline_available) tags.push("待校对");
                 else tags.push("新项目");

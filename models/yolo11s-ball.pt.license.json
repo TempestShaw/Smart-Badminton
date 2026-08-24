@@ -1,0 +1,8 @@
+{
+  "name": "Good-Badminton YOLO11s Shuttlecock",
+  "source_url": "https://github.com/yo-WASSUP/Good-Badminton/releases/tag/v0.1.0",
+  "license": "AGPL-3.0-only",
+  "redistributable": true,
+  "sha256": "c21113960fadce7f96b9f70f86802142482775405f60a9761328491868edf31b",
+  "notes": "Good-Badminton declares this checkpoint Apache-2.0; its embedded Ultralytics metadata declares AGPL-3.0, so the bundle applies AGPL-3.0."
+}

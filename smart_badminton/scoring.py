@@ -256,7 +256,7 @@ def calculate_score_state(
         correction = correction_map.get(rally)
         if correction and correction.get("winner") != "auto":
             requested = str(correction["winner"])
-            winner = "unknown" if requested == "no_point" else requested
+            winner = requested
             source = "manual-no-point" if requested == "no_point" else "manual"
             confidence = 1.0
             note = str(correction.get("note") or "manual Studio correction")
@@ -334,6 +334,7 @@ def analyze_score(
         "rallies": rows,
         "corrections": corrections,
         "resolved": sum(row["winner"] in {"near", "far"} for row in rows),
+        "no_point": sum(row["winner"] == "no_point" for row in rows),
         "unresolved": sum(row["winner"] == "unknown" and row["winner_source"] == "unresolved" for row in rows),
         "manual": sum(str(row["winner_source"]).startswith("manual") for row in rows),
         "automatic": sum(str(row["winner_source"]).startswith("automatic") for row in rows),

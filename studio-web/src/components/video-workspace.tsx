@@ -65,6 +65,10 @@ export function VideoWorkspace({
   }, [studio.videoRef]);
 
   useEffect(() => {
+    if (studio.scoreReview.active) stopCutPreview(true);
+  }, [stopCutPreview, studio.scoreReview.active]);
+
+  useEffect(() => {
     setCurrentTime(0);
     setPlaying(false);
     setCutPreview(false);
@@ -123,11 +127,18 @@ export function VideoWorkspace({
           }
         }
       }
+      if (studio.scoreReview.active) {
+        const segment = studio.selectedSegment;
+        if (segment && video.currentTime >= segment.end - 0.02) {
+          video.pause();
+          video.currentTime = segment.end;
+        }
+      }
       if (!video.paused) animationRef.current = window.requestAnimationFrame(tick);
     };
     if (playing) animationRef.current = window.requestAnimationFrame(tick);
     return () => window.cancelAnimationFrame(animationRef.current);
-  }, [cutIndex, cutPreview, playing, poseOverlay, shuttle.draw, stopCutPreview, studio.segments, studio.videoRef, syncPoseOverlay, toolMode, trajectoryMode]);
+  }, [cutIndex, cutPreview, playing, poseOverlay, shuttle.draw, stopCutPreview, studio.scoreReview.active, studio.segments, studio.selectedSegment, studio.videoRef, syncPoseOverlay, toolMode, trajectoryMode]);
 
   const setTrajectory = (mode: "debug" | "trail") => {
     const analysis = studio.project?.shuttle_analysis;
@@ -157,6 +168,10 @@ export function VideoWorkspace({
   const togglePlayback = async () => {
     const video = studio.videoRef.current;
     if (!video) return;
+    if (studio.scoreReview.active && studio.selectedSegment) {
+      const segment = studio.selectedSegment;
+      if (video.currentTime < segment.start || video.currentTime >= segment.end - 0.02) video.currentTime = segment.start;
+    }
     if (video.paused) await video.play(); else video.pause();
   };
 
@@ -176,6 +191,10 @@ export function VideoWorkspace({
   const jumpBoundary = (direction: -1 | 1) => {
     const video = studio.videoRef.current;
     if (!video) return;
+    if (studio.scoreReview.active) {
+      studio.moveScoreReview(direction);
+      return;
+    }
     if (cutPreview) {
       const next = Math.max(0, Math.min(studio.segments.length - 1, cutIndex + direction));
       setCutIndex(next);
@@ -270,7 +289,9 @@ export function VideoWorkspace({
           />
         ) : null}
         {toolMode !== "none" ? <div className={`tool-mode-badge ${toolMode}`}>{toolMode === "calibration" ? "COURT CALIBRATION" : "SHUTTLE LABEL"}</div> : null}
-        {cutPreview ? (
+        {studio.scoreReview.active ? (
+          <div className="cut-preview-status"><span>比分复核</span><em>R{String(studio.selectedIndex + 1).padStart(2, "0")}</em></div>
+        ) : cutPreview ? (
           <div className="cut-preview-status"><span>成片预览</span><strong>{formatTime(activeOutputTime)} / {formatTime(outputDuration(studio.segments))}</strong><em>R{String(cutIndex + 1).padStart(2, "0")}</em></div>
         ) : null}
       </div>
@@ -286,7 +307,7 @@ export function VideoWorkspace({
         <Button size="icon" variant="outline" aria-label="上一个边界" onClick={() => jumpBoundary(-1)}><SkipBack /></Button>
         <Button size="icon-lg" aria-label="播放或暂停" onClick={() => void togglePlayback()}>{playing ? <Pause /> : <Play />}</Button>
         <Button size="icon" variant="outline" aria-label="下一个边界" onClick={() => jumpBoundary(1)}><SkipForward /></Button>
-        <Button variant={cutPreview ? "secondary" : "outline"} disabled={!studio.segments.length} onClick={() => void toggleCutPreview()}><Scissors />{cutPreview ? "停止成片预览" : "成片预览"}</Button>
+        <Button variant={cutPreview ? "secondary" : "outline"} disabled={!studio.segments.length || studio.scoreReview.active} onClick={() => void toggleCutPreview()}><Scissors />{cutPreview ? "停止成片预览" : "成片预览"}</Button>
         <span className="transport-time">{formatTime(currentTime)} / {formatTime(studio.project?.video.duration ?? 0)}</span>
         <div className="transport-spacer" />
         <Label className="volume-label">音量<Slider aria-label="音量" min={0} max={1} step={0.05} value={[volume]} onValueChange={([value]) => {

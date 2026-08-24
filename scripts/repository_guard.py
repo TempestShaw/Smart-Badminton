@@ -23,12 +23,18 @@ SECRET_PATTERNS = (
 
 def tracked_files() -> list[PurePosixPath]:
     result = subprocess.run(
-        ["git", "ls-files", "-z"],
+        ["git", "ls-files", "--cached", "--others", "--exclude-standard", "-z"],
         cwd=ROOT,
         check=True,
         capture_output=True,
     )
-    return [PurePosixPath(value.decode("utf-8")) for value in result.stdout.split(b"\0") if value]
+    return [
+        relative
+        for value in result.stdout.split(b"\0")
+        if value
+        for relative in (PurePosixPath(value.decode("utf-8")),)
+        if (ROOT / relative).is_file()
+    ]
 
 
 def is_private_path(path: PurePosixPath) -> bool:

@@ -30,6 +30,10 @@ class AnalysisArtifacts:
         return self.root / "smart-features.csv"
 
     @property
+    def vision_features(self) -> Path:
+        return self.root / "vision-features.csv"
+
+    @property
     def probabilities(self) -> Path:
         return self.root / "rally-probabilities.csv"
 
@@ -112,6 +116,11 @@ class ProjectLayout:
         if self.is_match_project:
             return self.metadata / "rallies-studio-review.csv"
         return self.library / "Analysis" / "Studio" / f"{self.video.stem}.csv"
+
+    @property
+    def latest_auto_cut(self) -> Path:
+        name = self.root.name if self.is_match_project else video_key(self.video)
+        return self.library / "Latest_Auto_Cut" / f"{name}-rallies.csv"
 
     @property
     def ground_truth(self) -> Path:

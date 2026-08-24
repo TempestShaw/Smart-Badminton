@@ -133,7 +133,7 @@ def doctor_report(
         and checks["config"]["exists"]
         and tracknet_model is not None
         and tracknet_model.exists()
-        and torch_runtime.get("cuda_available")
+        and torch_runtime.get("available")
     )
     checks["release_safe"] = all(
         not model["configured"] or bool(model.get("redistributable"))

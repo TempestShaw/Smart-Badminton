@@ -32,12 +32,15 @@
 # Checkpoints require a verified license sidecar before explicit inclusion
 /models/*
 !/models/README.md
+!/models/MODEL_CARD.md
 !/models/*.license.json
+!/models/*.adapter.json
 /ThirdParty/
 *.pt
 *.pth
 *.onnx
 *.joblib
+!/models/rally-state-final-v4-frozen.joblib
 
 # Local runtimes and legacy experiment scripts
 /.tools/

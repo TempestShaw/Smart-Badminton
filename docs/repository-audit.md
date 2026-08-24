@@ -28,7 +28,7 @@
 ## Local-only and intentionally excluded
 
 - dated match directories: private masters, proxies, edits, contact sheets and extracted features;
-- unverified files under `models/`;
+- downloaded vision weights under `models/`; their manifests are tracked and the release bundle verifies every hash;
 - `.tools/`: the development Python/runtime environment;
 - `ThirdParty/`: exploratory upstream checkouts;
 - `tools/`: one-off scripts used during investigation and superseded by package commands.
@@ -36,13 +36,13 @@
 ## Third-party experiments
 
 - Good-Badminton informed the optional shuttle detector interface. Its full source is not vendored. The tested checkpoint produced useful candidates but also persistent venue false positives, so shuttle absence is never an end condition.
-- TrackNetV3 is an optional Hybrid detector input and remains a separately downloaded checkpoint.
+- TrackNetV3 and InpaintNet are part of the complete release model bundle.
 
 ## Publication gates
 
-- project source is Apache-2.0; optional Ultralytics packages and all model weights keep their own terms and are not
-  relicensed by this repository;
+- project source and rally-state v4 are Apache-2.0; the complete vision bundle retains AGPL-3.0 and MIT components;
 - CI must rebuild the React export, install the Python package, run tests and lint, and produce a wheel from a clean
   checkout; `scripts/build_wheel.py` also makes repeated local builds deterministic by rejecting stale package data;
-- `scripts/repository_guard.py` rejects private runtime data, credentials and unlicensed model files;
+- `scripts/repository_guard.py` audits tracked and not-yet-staged release candidates, rejecting private runtime data,
+  credentials and unlicensed model files;
 - add only media for which publication permission is explicit.

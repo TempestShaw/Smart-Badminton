@@ -5,6 +5,7 @@ Run `smart-badminton --help` or `python -m smart_badminton --help` after install
 | Command | Purpose |
 | --- | --- |
 | `init-project` | Create the first-run calibration, analysis, metadata, output and model-license layout. |
+| `install-models` | Install the checksum-verified Hybrid vision models into one directory. |
 | `doctor` | Check Python, optional packages, FFmpeg encoder fallback and checkpoint license sidecars. |
 | `preview-geometry` | Draw configured court and exclusion polygons on a video frame. |
 | `analyze-audio` | Extract transient impact candidates from a WAV file or video. |

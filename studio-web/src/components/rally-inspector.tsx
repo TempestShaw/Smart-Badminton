@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { Calculator, LoaderCircle, Scissors, Trash2 } from "lucide-react";
+import { Calculator, ListChecks, LoaderCircle, Scissors, SkipForward, Trash2, X } from "lucide-react";
 
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from "@/components/ui/alert-dialog";
 import { Badge } from "@/components/ui/badge";
@@ -136,7 +136,7 @@ function ScoreCard({ studio, score, correction, suggestion }: { studio: StudioCo
   return (
     <section className={evidenceCurrent ? "score-card" : "score-card stale"}>
       <div className="score-heading">
-        <span className="eyebrow">比分</span>
+        <span className="eyebrow">本局比分</span>
         <div className="score-heading-actions">
           <Badge variant={evidenceCurrent && score?.winner_source?.startsWith("automatic") ? "default" : evidenceCurrent && score?.winner_source?.startsWith("manual") ? "secondary" : "outline"}>{sourceLabel}</Badge>
           <Button size="xs" variant="secondary" disabled={studio.scoreCalculating || !studio.segments.length || studio.analysisStatus.state === "running"} onClick={() => void studio.calculateScore()}>
@@ -145,7 +145,19 @@ function ScoreCard({ studio, score, correction, suggestion }: { studio: StudioCo
           </Button>
         </div>
       </div>
+      {studio.scoreReview.active ? (
+        <div className="score-review-bar">
+          <strong>待标注 {studio.scoreReview.remaining}</strong>
+          <Button size="xs" variant="outline" onClick={() => studio.moveScoreReview(1)}><SkipForward />跳过</Button>
+          <Button size="xs" variant="ghost" onClick={studio.stopScoreReview}><X />退出</Button>
+        </div>
+      ) : (studio.score.unresolved ?? 0) > 0 ? (
+        <Button className="score-review-launch" size="sm" variant="outline" disabled={!evidenceCurrent || studio.dirty} onClick={studio.startScoreReview}>
+          <ListChecks />标注 {studio.score.unresolved} 分
+        </Button>
+      ) : null}
       <div className="score-line"><span>近场</span><strong>{evidenceCurrent ? score?.near_score ?? 0 : "—"}</strong><em>:</em><strong>{evidenceCurrent ? score?.far_score ?? 0 : "—"}</strong><span>远场</span></div>
+      {evidenceCurrent && ((score?.near_games ?? 0) > 0 || (score?.far_games ?? 0) > 0) ? <p>局数 {score?.near_games ?? 0}:{score?.far_games ?? 0}</p> : null}
       <p>下分发球：{evidenceCurrent ? serverLabels[score?.server_next ?? "unknown"] : "—"}</p>
       {suggestion && ["consensus", "review"].includes(suggestion.status) ? (
         <div className="score-suggestion">

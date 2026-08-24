@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { Activity, Bot, Boxes, Crosshair, ScanSearch, Sparkles } from "lucide-react";
+import { Activity, Bot, Boxes, CircleHelp, Crosshair, ScanSearch, Sparkles } from "lucide-react";
 
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from "@/components/ui/accordion";
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from "@/components/ui/alert-dialog";
@@ -10,7 +10,7 @@ import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import type { StudioController } from "@/hooks/use-studio-controller";
 
 export type ToolMode = "none" | "calibration" | "shuttle";
@@ -87,22 +87,15 @@ export function WorkflowPanel({
             <Badge variant={studio.project?.calibration.ready ? "default" : "outline"}>{studio.project?.calibration.ready ? "场地已校准" : "未校准"}</Badge>
           </AccordionTrigger>
           <AccordionContent className="workflow-content tool-grid">
-            {shuttle?.available_modes.length ? (
-              <Label className="shuttle-mode-select">
+            {shuttle?.available_modes.includes("hybrid") ? (
+              <div className="shuttle-mode-fixed">
                 <span>羽球检测</span>
-                <Select
-                  value={shuttle.mode ?? undefined}
-                  disabled={running}
-                  onValueChange={(value) => void studio.changeShuttleMode(value as "yolo" | "tracknet" | "hybrid")}
-                >
-                  <SelectTrigger><SelectValue /></SelectTrigger>
-                  <SelectContent>
-                    {shuttle.available_modes.includes("hybrid") ? <SelectItem value="hybrid">Hybrid</SelectItem> : null}
-                    {shuttle.available_modes.includes("tracknet") ? <SelectItem value="tracknet">TrackNet</SelectItem> : null}
-                    {shuttle.available_modes.includes("yolo") ? <SelectItem value="yolo">YOLO</SelectItem> : null}
-                  </SelectContent>
-                </Select>
-              </Label>
+                <Badge variant="secondary">Hybrid</Badge>
+                <Tooltip>
+                  <TooltipTrigger asChild><button className="shuttle-mode-help" type="button" aria-label="了解 Hybrid 羽球检测"><CircleHelp /></button></TooltipTrigger>
+                  <TooltipContent side="bottom">结合 TrackNet 与 YOLO，轨迹最稳定。</TooltipContent>
+                </Tooltip>
+              </div>
             ) : null}
             <Button data-guide-action="calibration" size="sm" variant="outline" className={toolMode === "calibration" ? "tool-card active" : "tool-card"} onClick={() => onToolMode(toolMode === "calibration" ? "none" : "calibration")}>
               <Crosshair /><span><strong>框选球场</strong></span>

@@ -68,6 +68,7 @@ Status: `[x]` complete, `[~]` implemented but awaiting broader video validation,
 
 ## P1 - Open-source readiness
 
+- [x] Publish the frozen rally-state v4 checkpoint with a model card, checksum and redistributable license.
 - [x] Gate candidate rally models with truth hashes and leave-one-match-out edit-quality regression.
 - [x] Measure merged rallies, fragmented rallies, extra context and overlap in the promotion loss.
 

@@ -881,6 +881,11 @@ def test_studio_precomputes_full_video_pose_and_shuttle_overlays(tmp_path: Path,
     config.write_text("{}", encoding="utf-8")
     pose_model.write_bytes(b"pose")
     shuttle_model.write_bytes(b"shuttle")
+    analysis = tmp_path / "Analysis" / "Auto" / "source"
+    analysis.mkdir(parents=True)
+    state_features = analysis / "smart-features.csv"
+    state_features.write_text("time_seconds,legacy_activity\n0.0,0.2\n", encoding="utf-8")
+    original_state_features = state_features.read_bytes()
     metadata = {
         "name": video.name,
         "duration": 10.0,
@@ -966,6 +971,8 @@ def test_studio_precomputes_full_video_pose_and_shuttle_overlays(tmp_path: Path,
     assert status["state"] == "complete"
     assert status["mode"] == "visual"
     assert timeline.read_bytes() == original_timeline
+    assert state_features.read_bytes() == original_state_features
+    assert (analysis / "vision-features.csv").exists()
     project = client.get("/api/project").json()
     assert project["pose_analysis"]["current"] is True
     assert project["pose_analysis"]["url"].startswith("/media/pose-overlay/full")
@@ -984,6 +991,23 @@ def test_studio_discovers_videos_and_seeds_working_copy(tmp_path: Path) -> None:
     working = _ensure_working_timeline(tmp_path, video)
     assert working == tmp_path / "Analysis" / "Studio" / "DJI_TEST_0007_D.csv"
     assert "1,1,2" in working.read_text(encoding="utf-8")
+
+
+def test_studio_prefers_latest_auto_cut_for_new_working_copy(tmp_path: Path) -> None:
+    video = tmp_path / "Match1" / "Match1_clip1.mp4"
+    video.parent.mkdir()
+    video.write_bytes(b"video")
+    latest = tmp_path / "Latest_Auto_Cut" / "Match1-rallies.csv"
+    latest.parent.mkdir()
+    latest.write_text("rally,start_seconds,end_seconds\n1,3,7\n", encoding="utf-8")
+    truth = video.parent / "Metadata" / "rallies-ground-truth.csv"
+    truth.parent.mkdir()
+    truth.write_text("rally,start_seconds,end_seconds\n1,1,2\n", encoding="utf-8")
+
+    working = _ensure_working_timeline(tmp_path, video)
+
+    assert working == video.parent / "Metadata" / "rallies-studio-review.csv"
+    assert "1,3,7" in working.read_text(encoding="utf-8")
 
 
 def test_studio_api_switches_projects_from_library(tmp_path: Path, monkeypatch) -> None:

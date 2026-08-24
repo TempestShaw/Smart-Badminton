@@ -25,6 +25,24 @@ def test_uncertain_events_never_change_score_but_manual_winner_does() -> None:
     assert corrected[0]["winner_source"] == "manual"
 
 
+def test_manual_no_point_is_reviewed_without_changing_score(tmp_path: Path) -> None:
+    rallies = tmp_path / "rallies.csv"
+    rallies.write_text("rally,start_seconds,end_seconds\n1,1,2\n2,3,4\n", encoding="utf-8")
+    corrections = tmp_path / "corrections.csv"
+    corrections.write_text(
+        "rally,winner,server_override,note\n1,no_point,unknown,ceiling contact\n",
+        encoding="utf-8",
+    )
+
+    summary = analyze_score(rallies, tmp_path / "score.csv", corrections_csv=corrections)
+
+    assert summary["rallies"][0]["winner"] == "no_point"
+    assert summary["rallies"][0]["winner_source"] == "manual-no-point"
+    assert summary["rallies"][0]["near_score"] == summary["rallies"][0]["far_score"] == 0
+    assert summary["no_point"] == 1
+    assert summary["unresolved"] == 1
+
+
 def test_next_formal_serve_resolves_previous_rally_without_inventing_last_point() -> None:
     rows = calculate_score_state(
         3,

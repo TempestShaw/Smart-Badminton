@@ -1,7 +1,13 @@
 import json
 from pathlib import Path
 
-from smart_badminton.doctor import choose_video_encoder, initialize_project, inspect_model_license
+from smart_badminton.doctor import (
+    choose_video_encoder,
+    initialize_project,
+    inspect_model_license,
+)
+
+REPOSITORY_ROOT = Path(__file__).resolve().parents[1]
 
 
 def test_choose_video_encoder_falls_back_to_cpu(monkeypatch) -> None:
@@ -36,6 +42,15 @@ def test_model_license_requires_matching_checksum(tmp_path: Path) -> None:
     verified = inspect_model_license(model)
     assert verified["status"] == "verified-redistributable"
     assert verified["redistributable"] is True
+
+
+def test_published_rally_model_has_verified_license() -> None:
+    model = REPOSITORY_ROOT / "models" / "rally-state-final-v4-frozen.joblib"
+
+    verified = inspect_model_license(model)
+
+    assert verified["status"] == "verified-redistributable"
+    assert verified["manifest"]["license"] == "Apache-2.0"
 
 
 def test_initialize_project_creates_first_run_layout(tmp_path: Path) -> None:

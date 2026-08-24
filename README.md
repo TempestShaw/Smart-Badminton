@@ -2,7 +2,8 @@
 
 Smart Badminton removes pickup, waiting, walking and conversation from fixed-camera badminton footage while conservatively preserving every rally ending.
 
-The segmenter combines court-specific optical flow, player pose, audio transients and optional shuttle detections. Audio or a missing shuttle detection can support a decision, but neither is allowed to end a rally by itself.
+The segmenter combines court-specific optical flow, player pose, audio transients and Hybrid shuttle tracking. Audio
+or a missing shuttle detection can support a decision, but neither is allowed to end a rally by itself.
 
 > Status: early research release. Calibrate and validate on representative footage before unattended batch processing.
 
@@ -32,19 +33,22 @@ python -m venv .venv
 python -m pip install -r requirements.txt
 ```
 
-Player pose and shuttle YOLO support are optional:
+Install the verified model bundle once. Studio then finds every model automatically:
 
 ```bash
-python -m pip install -r requirements.txt
+smart-badminton install-models --directory models
 ```
 
-See [Third-party software and model licensing](docs/third-party.md) before enabling the vision extra or redistributing model weights.
+The rally-state model runs on CPU. TrackNet, YOLO and pose analysis automatically use CUDA when available and fall
+back to CPU; CPU vision analysis is supported but slower.
+
+GitHub Releases include the same files as `smart-badminton-models-<version>.zip` for an offline setup.
 
 Create a project layout and inspect hardware/model provenance before the first run:
 
 ```bash
 smart-badminton init-project --directory my-match
-smart-badminton doctor --config my-match/Calibration/court-config.json --encoder auto --packages /optional/local/site-packages
+smart-badminton doctor --config my-match/Calibration/court-config.json --encoder auto
 ```
 
 `doctor` actually starts a one-frame encode before reporting an H.264 encoder as ready. Video jobs retry NVIDIA NVENC, Intel QSV, Apple VideoToolbox, `libx264`, and `libopenh264` in that order when those implementations are compiled in, so a missing hardware device does not turn a visible Studio button into a dead action. A model is release-safe only when its checksum matches a `<model>.license.json` sidecar; missing provenance never silently passes.
@@ -90,11 +94,15 @@ smart-badminton train-guarded --dataset dataset.json --baseline-model models/ral
 
 Every regression source includes a SHA-256 for its reviewed rally CSV. `train-guarded` writes a candidate only after every held-out match passes recall, complete-rally coverage and premature-cut checks.
 
-The development footage used a locally frozen rally-state checkpoint trained from human-reviewed sources. That private dataset, model card and checkpoint are intentionally not published. Public users can train a camera-specific checkpoint with `train` or `train-multi`, then pass it with `--model`. Studio reports automatic analysis as unavailable when the file is absent; it never presents a missing bundled model as a working feature. Later shuttle tracking and action analysis remain independent of the rally-state artifact.
+The Apache-2.0 rally-state v4 checkpoint is published at
+[`models/rally-state-final-v4-frozen.joblib`](models/rally-state-final-v4-frozen.joblib). Its private training footage and
+annotations are not distributed. See the [model card](models/MODEL_CARD.md) for scope and limitations.
 
 On Windows, `smart_badminton/run_pipeline.ps1` runs the same sequence. Supply an existing model for footage from a calibrated camera, or `-CorrectedTimeline` to train from reviewed ranges.
 
 ## Local Studio
+
+The hosted product architecture is tracked in [Online deployment](docs/deployment.md).
 
 Install the local UI and open a reviewed or automatic timeline:
 
@@ -113,7 +121,7 @@ Or launch a whole recording folder and choose the video inside Studio:
 smart-badminton studio \
   --library /path/to/recordings \
   --config camera.json \
-  --model output/rally-state.joblib \
+  --model models/rally-state-final-v4-frozen.joblib \
   --pose-model yolo11n-pose.pt
 ```
 
@@ -190,10 +198,10 @@ smart-badminton train-score-evidence --library matches
 smart-badminton analyze-score --rallies output/rallies.csv --events output/events.csv --corrections output/score-corrections.csv --model matches/.smart-badminton/models/score-evidence-v3.json --output output/score.csv --summary output/score-summary.json
 ```
 
-Launch Studio with the detector paths, then choose the mode under **场地与轨迹**:
+Launch Studio. It discovers the released Hybrid models from `models/`:
 
 ```bash
-smart-badminton studio --library matches --config camera.json --shuttle-model shuttle.pt --tracknet-model TrackNet_best.pt --inpaint-model InpaintNet_best.pt --shuttle-mode hybrid
+smart-badminton studio --library matches --config camera.json
 ```
 
 Studio point corrections update the current trajectory. They can also be exported as TrackNet point labels and used to fine-tune a local TrackNet checkpoint:
@@ -232,16 +240,21 @@ See [Architecture](docs/architecture.md), [Repository audit](docs/repository-aud
 
 ## Data and models
 
-No match video, extracted frame, venue image, human label or checkpoint is included. The publication guard rejects those files when they are tracked.
+No match video, extracted frame, venue image or human label is included. The publication guard rejects private
+runtime data. The rally model is published with the source; verified YOLO, TrackNet and InpaintNet weights are shipped
+in the separate release model ZIP.
 
 [`examples/privacy_safe_sample`](examples/privacy_safe_sample) is a synthetic, metadata-only fixture containing calibration, trajectory statuses, user shuttle corrections and a reviewed timeline. It contains no recorded person, venue or audio and is exercised by the test suite.
 
-Redistributable checkpoints may be added through Git LFS after their checksum-bound license sidecar passes `smart-badminton doctor`. See [`models/README.md`](models/README.md).
+Every published checkpoint has a checksum-bound license sidecar. See [`models/README.md`](models/README.md).
 
 ## Automation
 
-CI tests Python 3.10 and 3.12, rebuilds the Studio, runs the publication guard and produces a verified wheel. A `v<version>` tag publishes that wheel to a GitHub Release when it matches `pyproject.toml`.
+CI tests Python 3.10 and 3.12, rebuilds Studio, runs the publication guard and produces a verified wheel. A matching
+`v<version>` tag publishes the wheel and complete offline model ZIP.
 
 ## License
 
-The project source code is licensed under [Apache-2.0](LICENSE). No match media, training dataset, model weight or Ultralytics package is covered merely because the surrounding source repository uses Apache-2.0. Review [third-party software and model licensing](docs/third-party.md) before distributing optional checkpoints or a build that bundles Ultralytics.
+The project source and rally-state model are [Apache-2.0](LICENSE). The complete vision bundle also contains
+AGPL-3.0 and MIT components; their licenses remain attached. See
+[third-party notices](THIRD_PARTY_NOTICES.md).

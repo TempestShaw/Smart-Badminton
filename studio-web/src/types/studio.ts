@@ -65,7 +65,7 @@ export interface AnalyticsPayload {
 
 export interface ScoreRow {
   rally: number;
-  winner: "near" | "far" | "unknown";
+  winner: "near" | "far" | "no_point" | "unknown";
   winner_source: string;
   near_score: number;
   far_score: number;
@@ -97,6 +97,7 @@ export interface ScorePayload {
   rallies?: ScoreRow[];
   corrections?: ScoreCorrection[];
   resolved?: number;
+  no_point?: number;
   unresolved?: number;
   manual?: number;
   automatic?: number;
@@ -254,6 +255,7 @@ export interface LibraryVideo {
   size_bytes: number;
   proxy_available: boolean;
   timeline_available: boolean;
+  latest_auto_cut_available: boolean;
   ground_truth_available: boolean;
   completed_marker: boolean;
   active: boolean;

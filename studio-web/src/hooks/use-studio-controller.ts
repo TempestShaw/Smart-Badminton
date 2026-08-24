@@ -18,7 +18,6 @@ import type {
   Segment,
   CalibrationPayload,
   OutputPayload,
-  ShuttleAnalysisPayload,
 } from "@/types/studio";
 
 interface TimelineSaveResponse {
@@ -56,6 +55,7 @@ export function useStudioController() {
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [scoreCalculating, setScoreCalculating] = useState(false);
+  const [scoreReviewActive, setScoreReviewActive] = useState(false);
 
   const notify = useCallback((text: string, error = false) => {
     if (error) showToast.error(text);
@@ -73,6 +73,7 @@ export function useStudioController() {
     setFuture([]);
     setAnalytics(payload.analytics ?? { available: false });
     setScore(payload.score ?? { available: false });
+    setScoreReviewActive(false);
     setMediaNonce(Date.now());
     videoRef.current?.pause();
   }, []);
@@ -141,6 +142,18 @@ export function useStudioController() {
     },
     [segments],
   );
+
+  const playScoreReviewRally = useCallback((rally: number) => {
+    const index = rally - 1;
+    const segment = segments[index];
+    if (!segment) return;
+    setSelectedIndex(index);
+    const video = videoRef.current;
+    if (!video) return;
+    video.pause();
+    video.currentTime = segment.start;
+    window.requestAnimationFrame(() => void video.play().catch(() => undefined));
+  }, [segments]);
 
   const recordChange = useCallback(
     (next: Segment[], nextSelected = selectedIndex) => {
@@ -346,12 +359,28 @@ export function useStudioController() {
           body: JSON.stringify({ project_id: project.id, corrections }),
         });
         setScore(payload);
-        notify("比分已保存");
+        if (scoreReviewActive && replacement.winner !== "auto") {
+          const unresolved = (payload.rallies ?? [])
+            .filter((row) => row.winner_source === "unresolved")
+            .map((row) => row.rally);
+          if (!unresolved.length) {
+            setScoreReviewActive(false);
+            videoRef.current?.pause();
+            notify("比分标注完成");
+          } else {
+            const next = unresolved.find((candidate) => candidate > rally) ?? unresolved[0];
+            playScoreReviewRally(next);
+          }
+        } else {
+          notify("比分已保存");
+        }
+        return true;
       } catch (error) {
         notify((error as Error).message, true);
+        return false;
       }
     },
-    [dirty, notify, project, score.corrections, score.rallies, selectedIndex],
+    [dirty, notify, playScoreReviewRally, project, score.corrections, score.rallies, scoreReviewActive, selectedIndex],
   );
 
   const calculateScore = useCallback(async () => {
@@ -466,23 +495,6 @@ export function useStudioController() {
     }
   }, [notify, project]);
 
-  const changeShuttleMode = useCallback(async (mode: "yolo" | "tracknet" | "hybrid") => {
-    try {
-      const payload = await apiRequest<ShuttleAnalysisPayload>("/api/settings/shuttle-mode", {
-        method: "PUT",
-        body: JSON.stringify({ mode }),
-      });
-      setProject((current) => current ? {
-        ...current,
-        shuttle_analysis: payload,
-        automatic_analysis: { ...current.automatic_analysis, shuttle_mode: payload.mode },
-      } : current);
-      notify(`检测模式：${mode === "hybrid" ? "Hybrid" : mode === "tracknet" ? "TrackNet" : "YOLO"}`);
-    } catch (error) {
-      notify((error as Error).message, true);
-    }
-  }, [notify]);
-
   const launchVisualAnalysis = useCallback(async (force = false) => {
     if (!project) return;
     try {
@@ -588,6 +600,39 @@ export function useStudioController() {
     () => new Map((project?.score_labeling.suggestions ?? []).map((row) => [Number(row.rally), row])),
     [project?.score_labeling.suggestions],
   );
+  const scoreReviewRallies = useMemo(
+    () => (score.rallies ?? [])
+      .filter((row) => row.winner_source === "unresolved")
+      .map((row) => Number(row.rally)),
+    [score.rallies],
+  );
+  const startScoreReview = useCallback(() => {
+    if (dirty) {
+      notify("请先保存时间表", true);
+      return;
+    }
+    if (!scoreReviewRallies.length) {
+      notify("没有待标注比分");
+      return;
+    }
+    const currentRally = selectedIndex + 1;
+    const first = scoreReviewRallies.includes(currentRally) ? currentRally : scoreReviewRallies[0];
+    setScoreReviewActive(true);
+    playScoreReviewRally(first);
+  }, [dirty, notify, playScoreReviewRally, scoreReviewRallies, selectedIndex]);
+  const stopScoreReview = useCallback(() => {
+    setScoreReviewActive(false);
+    videoRef.current?.pause();
+  }, []);
+  const moveScoreReview = useCallback((direction: -1 | 1) => {
+    if (!scoreReviewRallies.length) return;
+    const currentRally = selectedIndex + 1;
+    const current = scoreReviewRallies.indexOf(currentRally);
+    const next = current < 0
+      ? 0
+      : (current + direction + scoreReviewRallies.length) % scoreReviewRallies.length;
+    playScoreReviewRally(scoreReviewRallies[next]);
+  }, [playScoreReviewRally, scoreReviewRallies, selectedIndex]);
 
   return {
     videoRef,
@@ -604,6 +649,11 @@ export function useStudioController() {
     score,
     scoreMap,
     scoreSuggestionMap,
+    scoreReview: {
+      active: scoreReviewActive,
+      remaining: scoreReviewRallies.length,
+      rallies: scoreReviewRallies,
+    },
     analysisStatus,
     renderStatus,
     mediaSource: project ? mediaUrl(`/media/video?v=${mediaNonce}`) : null,
@@ -628,13 +678,15 @@ export function useStudioController() {
     refreshProject: reloadProject,
     updateScore,
     calculateScore,
+    startScoreReview,
+    stopScoreReview,
+    moveScoreReview,
     launchScoreLabeling,
     reviewScoreLabel,
     refreshAnalyticsAndScore,
     applyCalibrationResult,
     launchAnalysis,
     launchShuttleAnalysis,
-    changeShuttleMode,
     launchVisualAnalysis,
     startRender,
   };

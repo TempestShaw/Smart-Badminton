@@ -654,10 +654,199 @@ def test_landing_and_next_serve_split_without_probability_valley(tmp_path: Path)
         }
     ).to_csv(trajectory, index=False)
 
-    result = segment_rallies(features, probabilities, output, shuttle_trajectory_csv=trajectory)
+    result = segment_rallies(
+        features,
+        probabilities,
+        output,
+        shuttle_trajectory_csv=trajectory,
+        adapter=SegmentationAdapter(split_handoff_before_serve=True),
+    )
 
     assert len(result) == 2
     assert result[0].end < result[1].start
+
+
+def test_trajectory_tracklet_restart_does_not_split_active_rally(tmp_path: Path) -> None:
+    times = np.round(np.arange(0.0, 9.0, 0.1), 3)
+    first_play = (times >= 1.0) & (times <= 2.0)
+    ready_window = (times >= 2.6) & (times <= 4.0)
+    frame = pd.DataFrame(
+        {
+            "time_seconds": times,
+            "near_swing_score": np.where(first_play, 0.55, 0.0),
+            "far_swing_score": 0.0,
+            "near_lunge_score": 0.0,
+            "far_lunge_score": 0.0,
+            "near_flow_mean": np.where(first_play, 1.5, 0.0),
+            "far_flow_mean": 0.0,
+            "near_motion_fraction": 0.0,
+            "far_motion_fraction": 0.0,
+            "audio_hit_score": 0.0,
+            "shuttle_visible": 0.0,
+            "shuttle_speed_normalized": 0.0,
+            "near_person_visible": 1.0,
+            "far_person_visible": 1.0,
+            "near_foot_speed_normalized": np.where(ready_window, 0.0, 0.2),
+            "far_foot_speed_normalized": np.where(ready_window, 0.0, 0.2),
+            "near_stance_width_normalized": 0.04,
+            "far_stance_width_normalized": 0.02,
+        }
+    )
+    features = tmp_path / "features.csv"
+    probabilities = tmp_path / "probabilities.csv"
+    trajectory = tmp_path / "trajectory.csv"
+    output = tmp_path / "rallies.csv"
+    frame.to_csv(features, index=False)
+    pd.DataFrame(
+        {"time_seconds": times, "rally_probability": np.where((times >= 0.7) & (times <= 8.0), 0.92, 0.01)}
+    ).to_csv(probabilities, index=False)
+    pd.DataFrame(
+        {
+            "time_seconds": [1.2, 1.4, 1.6, 1.8, 2.0, 4.0, 4.2, 4.4, 4.6],
+            "center_x": [450, 520, 590, 660, 730, 500, 570, 650, 740],
+            "center_y": [250, 300, 390, 520, 690, 620, 520, 400, 280],
+            "source_width": 1920,
+            "source_height": 1080,
+            "status": "tracked",
+            "track_id": [1, 1, 1, 1, 1, 2, 2, 2, 2],
+            "flight_id": [1, 1, 1, 1, 1, 2, 2, 2, 2],
+        }
+    ).to_csv(trajectory, index=False)
+
+    result = segment_rallies(features, probabilities, output, shuttle_trajectory_csv=trajectory)
+
+    assert len(result) == 1
+
+
+def test_uncertain_landing_cannot_block_a_later_model_backed_rally(tmp_path: Path) -> None:
+    times = np.round(np.arange(0.0, 8.0, 0.1), 3)
+    first = (times >= 1.0) & (times <= 1.2)
+    second = (times >= 5.0) & (times <= 6.0)
+    frame = pd.DataFrame(
+        {
+            "time_seconds": times,
+            "frame_index": np.arange(len(times)),
+            "near_swing_score": np.where(first | second, 0.7, 0.0),
+            "far_swing_score": 0.0,
+            "near_lunge_score": 0.0,
+            "far_lunge_score": 0.0,
+            "near_flow_mean": np.where(first | second, 2.0, 0.0),
+            "far_flow_mean": 0.0,
+            "near_motion_fraction": 0.0,
+            "far_motion_fraction": 0.0,
+            "audio_hit_score": 0.0,
+            "shuttle_visible": 0.0,
+            "shuttle_speed_normalized": 0.0,
+        }
+    )
+    features = tmp_path / "features.csv"
+    probabilities = tmp_path / "probabilities.csv"
+    trajectory = tmp_path / "trajectory.csv"
+    output = tmp_path / "rallies.csv"
+    frame.to_csv(features, index=False)
+    pd.DataFrame(
+        {
+            "time_seconds": times,
+            "frame_index": frame.frame_index,
+            "rally_probability": np.where(first | second, 0.95, 0.01),
+        }
+    ).to_csv(probabilities, index=False)
+    pd.DataFrame(
+        {
+            "time_seconds": [1.0, 1.1, 1.2, 1.3],
+            "center_x": [500, 560, 620, 680],
+            "center_y": [280, 360, 470, 650],
+            "source_width": 1920,
+            "source_height": 1080,
+            "status": "tracked",
+            "track_id": 1,
+            "flight_id": 1,
+        }
+    ).to_csv(trajectory, index=False)
+
+    result = segment_rallies(features, probabilities, output, shuttle_trajectory_csv=trajectory)
+
+    assert len(result) == 2
+    assert result[1].start <= 5.0
+
+
+def test_protect_only_trajectory_extends_end_without_changing_clip_count(tmp_path: Path) -> None:
+    times = np.round(np.arange(0.0, 7.0, 0.1), 3)
+    active = ((times >= 1.0) & (times <= 2.0)) | ((times >= 4.0) & (times <= 5.0))
+    frame = pd.DataFrame(
+        {
+            "time_seconds": times,
+            "frame_index": np.arange(len(times)),
+            "near_swing_score": np.where(
+                active,
+                0.7,
+                np.where(np.isclose(times, 2.3), 0.17, 0.0),
+            ),
+            "far_swing_score": 0.0,
+            "near_lunge_score": 0.0,
+            "far_lunge_score": 0.0,
+            "near_flow_mean": np.where(active, 2.0, 0.0),
+            "far_flow_mean": 0.0,
+            "near_motion_fraction": 0.0,
+            "far_motion_fraction": 0.0,
+            "audio_hit_score": 0.0,
+            "shuttle_visible": 0.0,
+            "shuttle_speed_normalized": 0.0,
+        }
+    )
+    features = tmp_path / "features.csv"
+    probabilities = tmp_path / "probabilities.csv"
+    trajectory = tmp_path / "trajectory.csv"
+    output = tmp_path / "rallies.csv"
+    frame.to_csv(features, index=False)
+    pd.DataFrame(
+        {
+            "time_seconds": times,
+            "frame_index": frame.frame_index,
+            "rally_probability": np.where(
+                active,
+                0.95,
+                np.where(np.isclose(times, 2.3), 0.10, 0.01),
+            ),
+        }
+    ).to_csv(probabilities, index=False)
+    pd.DataFrame(
+        {
+            "time_seconds": [1.8, 2.0, 2.4, 2.5, 2.6],
+            "center_x": [500, 560, 620, 680, 740],
+            "center_y": [260, 320, 400, 510, 650],
+            "source_width": 1920,
+            "source_height": 1080,
+            "status": "tracked",
+            "track_id": [1, 1, 2, 2, 2],
+            "flight_id": [1, 1, 2, 2, 2],
+        }
+    ).to_csv(trajectory, index=False)
+
+    result = segment_rallies(
+        features,
+        probabilities,
+        output,
+        shuttle_trajectory_csv=trajectory,
+        trajectory_policy="protect_only",
+    )
+
+    assert len(result) == 2
+    assert result[0].end >= 3.0
+    assert result[0].end < result[1].start
+
+    continuous = pd.read_csv(trajectory)
+    continuous[["track_id", "flight_id"]] = 1
+    continuous.to_csv(trajectory, index=False)
+    unchanged = segment_rallies(
+        features,
+        probabilities,
+        output,
+        shuttle_trajectory_csv=trajectory,
+        trajectory_policy="protect_only",
+    )
+
+    assert unchanged[0].end == 2.55
 
 
 def test_complete_handoff_flight_stays_between_points_until_formal_serve(tmp_path: Path) -> None:
@@ -754,6 +943,47 @@ def test_unknown_neighbor_trajectory_is_not_editing_evidence(tmp_path: Path) -> 
 
     assert not np.any(evidence.trajectory_visible)
     assert not np.any(evidence.protected_flight)
+
+
+def test_stationary_gap_splits_reused_flight_id(tmp_path: Path) -> None:
+    times = np.round(np.arange(0.0, 4.0, 0.1), 3)
+    frame = pd.DataFrame(
+        {
+            "time_seconds": times,
+            "rally_probability": 0.8,
+            "near_swing_score": 0.3,
+        }
+    )
+    trajectory = tmp_path / "trajectory.csv"
+    rows = []
+    for time_seconds in np.round(np.arange(1.0, 3.1, 0.1), 3):
+        if time_seconds <= 1.5:
+            center_x = 500 + (time_seconds - 1.0) * 300
+        elif time_seconds < 2.5:
+            center_x = 650
+        else:
+            center_x = 650 + (time_seconds - 2.5) * 300
+        rows.append(
+            {
+                "time_seconds": time_seconds,
+                "center_x": center_x,
+                "center_y": 400,
+                "source_width": 1920,
+                "source_height": 1080,
+                "status": "tracked",
+                "track_id": 1,
+                "flight_id": 1,
+                "ownership_confidence": 0.9,
+                "ownership_evidence": "net_crossing",
+            }
+        )
+    pd.DataFrame(rows).to_csv(trajectory, index=False)
+
+    evidence = build_rally_evidence(frame, trajectory)
+
+    assert evidence.trajectory_visible[np.flatnonzero(np.isclose(times, 1.3))[0]]
+    assert not evidence.trajectory_visible[np.flatnonzero(np.isclose(times, 2.0))[0]]
+    assert evidence.trajectory_visible[np.flatnonzero(np.isclose(times, 2.8))[0]]
 
 
 def test_local_start_adapter_splits_a_merged_interval(tmp_path: Path) -> None:
