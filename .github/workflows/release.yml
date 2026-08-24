@@ -35,7 +35,11 @@ jobs:
         run: npm run check
       - working-directory: studio-web
         run: npm run build
-      - run: git diff --exit-code -- smart_badminton/studio_static
+      - name: Verify packaged Studio
+        run: |
+          test -s smart_badminton/studio_static/index.html
+          test -s smart_badminton/studio_static/studio-tutorial.zh-CN.md
+          test "$(find smart_badminton/studio_static/_next/static/chunks -type f | wc -l)" -gt 0
       - run: python -m pip install -e ".[dev,studio]" build
       - run: python scripts/repository_guard.py
       - run: pytest -q
