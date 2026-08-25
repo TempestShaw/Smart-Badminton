@@ -2,6 +2,8 @@
 
 Smart Badminton removes pickup, waiting, walking and conversation from fixed-camera badminton footage while conservatively preserving every rally ending.
 
+**Web app:** <https://smart-badminton-tau.vercel.app>
+
 The segmenter combines court-specific optical flow, player pose, audio transients and Hybrid shuttle tracking. Audio
 or a missing shuttle detection can support a decision, but neither is allowed to end a rally by itself.
 

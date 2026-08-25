@@ -1,5 +1,7 @@
 # Online deployment
 
+Production: <https://smart-badminton-tau.vercel.app>
+
 ## Production architecture
 
 The public Next.js export runs **Browser Quick** without an application backend:
