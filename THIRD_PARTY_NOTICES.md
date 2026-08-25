@@ -10,6 +10,10 @@ licenses:
   Source: <https://github.com/yo-WASSUP/Good-Badminton/releases/tag/v0.1.0>.
 - TrackNetV3 runtime, `TrackNet_best.pt`, and `InpaintNet_best.pt`: MIT. Copyright (c) 2024 qaz812345. Source:
   <https://github.com/qaz812345/TrackNetV3>.
+- `@ffmpeg/ffmpeg` and `@ffmpeg/util`: MIT. Source: <https://github.com/ffmpegwasm/ffmpeg.wasm>.
+- `@ffmpeg/core` WebAssembly runtime: GPL-2.0-or-later. Source and corresponding build scripts:
+  <https://github.com/ffmpegwasm/ffmpeg.wasm>. It is downloaded as an npm dependency and published only with the
+  Browser Quick web build.
 
 Copies of the applicable AGPL-3.0 and MIT license texts are in `licenses/`. Checksum-bound manifests next to every
-model identify the exact artifact and source.
+model identify the exact artifact and source. Browser runtime package versions are pinned in `studio-web/package-lock.json`.

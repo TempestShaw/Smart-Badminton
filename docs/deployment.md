@@ -1,42 +1,34 @@
 # Online deployment
 
-## Decision
+## Production architecture
 
-The browser uploads source videos directly to object storage. A control API owns projects and jobs, while GPU workers run the existing analysis and rendering pipeline. Local Studio and hosted Studio share one project manifest and the same pipeline entrypoint; storage is the only adapter.
+The public Next.js export runs **Browser Quick** without an application backend:
 
 ```text
-Next.js Studio
-  -> control API + database
-  -> presigned object-storage upload
-  -> durable GPU job queue
-  -> Hybrid analysis / FFmpeg worker
-  -> object storage results
+Static Next.js page
+  -> browser File object
+  -> local frame sampling and segmentation
+  -> local timeline storage
+  -> local FFmpeg WebAssembly export
 ```
 
-The web frontend may be hosted separately. Video upload, CUDA inference, FFmpeg rendering and model files do not run inside the frontend host's request functions.
+The source video is not uploaded. Hosting serves HTML, JavaScript and the pinned FFmpeg WebAssembly runtime, so there is no per-video GPU bill.
 
-## Required changes
+**Native Accurate** remains a local companion. The web page links to the current GitHub Release and opens `127.0.0.1:8765` after the user starts the native Studio. CUDA, Hybrid models, full trajectory analysis and native FFmpeg remain outside the hosted page.
 
-1. Replace the process-wide active video with user-scoped `project_id` requests.
-2. Replace folder selection with resumable upload and a project list.
-3. Store source video, proxy, analysis cache and exports by object key instead of browser-provided paths.
-4. Move analysis state from in-process threads to durable queued jobs with retry, cancellation and progress.
-5. Package the Hybrid worker and its pinned CUDA/FFmpeg dependencies as a container.
-6. Add authentication, ownership checks, quotas, retention and deletion controls.
+## Builds
 
-## Delivery order
+- `npm run build` creates the deployable web export in `studio-web/out/`.
+- `npm run build:embedded` publishes the `/static` build into `smart_badminton/studio_static/` for FastAPI.
+- Both builds share React components, segment types and timeline semantics.
 
-- **Gate 0 — licensing:** confirm redistribution and hosted-inference rights for every checkpoint and runtime.
-- **Milestone 1 — cloud project contract:** introduce project, artifact and job records without changing pipeline algorithms.
-- **Milestone 2 — upload and preview:** direct multipart upload, proxy job and browser playback.
-- **Milestone 3 — GPU pipeline:** queued Hybrid analysis, timeline save and render output.
-- **Milestone 4 — production controls:** authentication, billing limits, observability, backups and deletion.
-- **Milestone 5 — CI/CD:** test gates, frontend preview deployment, worker image publication and production promotion.
+## Deployment
 
-## Invariants
+Configure the Vercel project root as `studio-web`, then deploy the static export. `studio-web/vercel.json` applies immutable caching to FFmpeg assets. No environment variables, storage account or database are required.
 
-- Human timelines and score labels are durable source data; predictions never overwrite them.
-- Large media bypasses the control API and moves through signed object-storage URLs.
-- Jobs may resume after a process or worker restart.
-- Every artifact records the pipeline version, model checksums and source-video checksum.
-- The UI never receives server filesystem paths or model-provider credentials.
+## Boundaries
+
+- Browser Quick uses lightweight adaptive visual activity, not the full Hybrid detector.
+- Browser export currently accepts source files up to 1.5 GB because FFmpeg WebAssembly uses browser memory.
+- Native Accurate is the supported path for long recordings, full trajectories, scoring and CUDA.
+- Manual timelines and score labels remain local source data and are never overwritten by predictions.

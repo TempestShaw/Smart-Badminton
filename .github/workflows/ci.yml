@@ -52,7 +52,15 @@ jobs:
       - working-directory: studio-web
         run: npm run check
       - working-directory: studio-web
+        run: npm test
+      - working-directory: studio-web
         run: npm run build
+      - name: Verify web export
+        run: |
+          test -s studio-web/out/index.html
+          test -s studio-web/out/ffmpeg/ffmpeg-core.wasm
+      - working-directory: studio-web
+        run: npm run build:embedded
       - name: Verify packaged Studio
         run: |
           test -s smart_badminton/studio_static/index.html

@@ -1,6 +1,6 @@
 "use client";
 
-import { Clapperboard, Redo2, Save, Undo2 } from "lucide-react";
+import { Clapperboard, Globe2, Redo2, Save, Undo2 } from "lucide-react";
 import { useState } from "react";
 
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from "@/components/ui/alert-dialog";
@@ -11,7 +11,7 @@ import { BackgroundJobCenter } from "@/components/background-job-center";
 import { StudioTutorial } from "@/components/studio-tutorial";
 import type { StudioController } from "@/hooks/use-studio-controller";
 
-export function AppHeader({ studio }: { studio: StudioController }) {
+export function AppHeader({ studio, onSwitchEngine }: { studio: StudioController; onSwitchEngine?: () => void }) {
   const [includeTrajectory, setIncludeTrajectory] = useState(false);
   const [winnerFilter, setWinnerFilter] = useState<"all" | "near" | "far">("all");
   const [includeScore, setIncludeScore] = useState(false);
@@ -30,6 +30,7 @@ export function AppHeader({ studio }: { studio: StudioController }) {
         <span>{studio.project?.video.name ?? "正在载入项目…"}</span>
       </div>
       <div className="top-actions">
+        {onSwitchEngine ? <Button size="sm" variant="ghost" onClick={onSwitchEngine}><Globe2 />浏览器版</Button> : null}
         <BackgroundJobCenter studio={studio} />
         <StudioTutorial studio={studio} />
         <Badge variant={studio.dirty ? "destructive" : "outline"}>{studio.dirty ? "有未保存修改" : "已保存"}</Badge>

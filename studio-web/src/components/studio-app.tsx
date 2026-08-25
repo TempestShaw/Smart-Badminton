@@ -12,7 +12,7 @@ import { VideoWorkspace } from "@/components/video-workspace";
 import { WorkflowPanel, type ToolMode } from "@/components/workflow-panel";
 import { useStudioController } from "@/hooks/use-studio-controller";
 
-export function StudioApp() {
+export function StudioApp({ onSwitchEngine }: { onSwitchEngine?: () => void }) {
   const studio = useStudioController();
   const [toolMode, setToolMode] = useState<ToolMode>("none");
   const [toolDirty, setToolDirty] = useState(false);
@@ -68,7 +68,7 @@ export function StudioApp() {
 
   return (
     <>
-      <AppHeader studio={studio} />
+      <AppHeader studio={studio} onSwitchEngine={onSwitchEngine} />
       <ProjectBrowser studio={studio} />
       <WorkflowPanel studio={studio} toolMode={toolMode} onToolMode={changeToolMode} />
       <main className="studio-shell" aria-busy={studio.loading}>

@@ -1,5 +1,5 @@
-import { StudioApp } from "@/components/studio-app";
+import { EngineShell } from "@/components/engine-shell";
 
 export default function Home() {
-  return <StudioApp />;
+  return <EngineShell />;
 }

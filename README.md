@@ -7,6 +7,11 @@ or a missing shuttle detection can support a decision, but neither is allowed to
 
 > Status: early research release. Calibrate and validate on representative footage before unattended batch processing.
 
+Smart Badminton has two local-first engines:
+
+- **Browser Quick** runs in a hosted page with browser video decoding, adaptive motion segmentation and FFmpeg WebAssembly export. The selected video stays on the device.
+- **Native Accurate** runs the full Python Hybrid pipeline with pose, shuttle trajectory, score analysis and optional CUDA acceleration.
+
 ## Highlights
 
 - normalized active-court, near-player, far-player, net and aerial-space masks;
@@ -104,6 +109,18 @@ On Windows, `smart_badminton/run_pipeline.ps1` runs the same sequence. Supply an
 
 The hosted product architecture is tracked in [Online deployment](docs/deployment.md).
 
+### Browser Quick
+
+Run the zero-backend web edition:
+
+```bash
+cd studio-web
+npm ci
+npm run dev
+```
+
+Open `http://localhost:3000/?engine=browser`. Choose a video, run **Quick analysis**, adjust the segment edges and export MP4. The timeline is stored in browser local storage; the video is represented by a local object URL and is not uploaded.
+
 Install the local UI and open a reviewed or automatic timeline:
 
 ```bash
@@ -159,8 +176,11 @@ Before packaging Python, publish a production export back into the package:
 cd studio-web
 npm ci
 npm run check
-npm run build
+npm test
+npm run build:embedded
 ```
+
+`npm run build` creates the standalone web export in `studio-web/out/`; `npm run build:embedded` creates the Python-served `/static` build.
 
 Create a wheel through the checked release builder. It removes only the repository's generated `build/` directory,
 then rejects stale React hashes, missing license files, private media or bundled model weights:

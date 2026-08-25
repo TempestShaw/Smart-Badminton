@@ -16,6 +16,7 @@ if (dirname(targetDirectory) !== expectedParent || basename(targetDirectory) !==
 
 await mkdir(targetDirectory, { recursive: true });
 await cp(resolve(exportDirectory, "index.html"), resolve(targetDirectory, "index.html"));
+await cp(resolve(exportDirectory, "icon.svg"), resolve(targetDirectory, "icon.svg"));
 await cp(tutorialSource, resolve(targetDirectory, "studio-tutorial.zh-CN.md"));
 await rm(targetAssets, { recursive: true, force: true });
 await cp(resolve(exportDirectory, "_next"), targetAssets, { recursive: true });

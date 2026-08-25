@@ -3,11 +3,17 @@
   "version": "0.1.0",
   "private": true,
   "scripts": {
-    "dev": "next dev",
-    "build": "next build && node scripts/publish-static.mjs",
-    "check": "tsc --noEmit"
+    "prepare:ffmpeg": "node scripts/prepare-ffmpeg-assets.mjs",
+    "dev": "npm run prepare:ffmpeg && next dev",
+    "build": "npm run prepare:ffmpeg && next build",
+    "build:embedded": "npm run prepare:ffmpeg && cross-env STUDIO_EMBEDDED_BUILD=1 next build && node scripts/publish-static.mjs",
+    "check": "tsc --noEmit",
+    "test": "vitest run"
   },
   "dependencies": {
+    "@ffmpeg/core": "^0.12.10",
+    "@ffmpeg/ffmpeg": "^0.12.15",
+    "@ffmpeg/util": "^0.12.2",
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",
     "lucide-react": "^1.33.0",
@@ -27,8 +33,10 @@
     "@types/node": "^22.0.0",
     "@types/react": "^19.0.0",
     "@types/react-dom": "^19.0.0",
+    "cross-env": "^7.0.3",
     "postcss": "^8.5.26",
     "tailwindcss": "^4.3.3",
-    "typescript": "^5.9.0"
+    "typescript": "^5.9.0",
+    "vitest": "^3.2.4"
   }
 }

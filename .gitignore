@@ -71,6 +71,7 @@ venv/
 /studio-web/node_modules/
 /studio-web/.next/
 /studio-web/out/
+/studio-web/public/ffmpeg/
 /studio-web/*.tsbuildinfo
 
 # Editors and OS
