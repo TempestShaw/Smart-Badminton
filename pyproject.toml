@@ -31,9 +31,9 @@ dependencies = [
 vision = ["ultralytics>=8.3", "opencv-python>=4.10,<4.12"]
 tracknet = ["torch>=2.7"]
 hybrid = ["ultralytics>=8.3", "opencv-python>=4.10,<4.12", "torch>=2.7"]
-studio = ["fastapi>=0.115,<0.140", "httpx>=0.27,<1", "uvicorn>=0.30"]
+studio = ["fastapi>=0.115,<0.142", "httpx>=0.27,<1", "uvicorn>=0.30"]
 full = [
-  "fastapi>=0.115,<0.140",
+  "fastapi>=0.115,<0.142",
   "httpx>=0.27,<1",
   "opencv-python>=4.10,<4.12",
   "torch>=2.7",
