@@ -2,6 +2,7 @@
 
 import { Clapperboard, Globe2, Redo2, Save, Undo2 } from "lucide-react";
 import { useState } from "react";
+import { Brand } from "@/components/brand";
 
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from "@/components/ui/alert-dialog";
 import { Badge } from "@/components/ui/badge";
@@ -21,10 +22,7 @@ export function AppHeader({ studio, onSwitchEngine }: { studio: StudioController
   const scoreReady = studio.score.available && !studio.dirty;
   return (
     <header className="topbar">
-      <div className="brand" aria-label="Smart Badminton Studio">
-        <span className="brand-mark">SB</span>
-        <div><strong>SMART BADMINTON</strong><span>STUDIO</span></div>
-      </div>
+      <Brand />
       <div className="project-title">
         <span className="status-dot" />
         <span>{studio.project?.video.name ?? "正在载入项目…"}</span>

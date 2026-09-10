@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type PointerEvent as ReactPointerEvent } from "react";
 import { Download, FileVideo2, Gauge, Globe2, Pause, Play, Plus, Save, Scissors, Square, Trash2, Upload } from "lucide-react";
 
+import { Brand } from "@/components/brand";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Progress } from "@/components/ui/progress";
@@ -211,8 +212,17 @@ export function BrowserQuickStudio({ onSwitchNative }: { onSwitchNative: () => v
 
   return (
     <div className="browser-quick-app">
+      <aside className="quick-sidebar">
+        <Brand />
+        <Button className="quick-new-project" onClick={() => inputRef.current?.click()}><Plus />{file ? "更换比赛视频" : "新建剪片"}</Button>
+        <div className="quick-library">
+          <span className="eyebrow">我的工作台</span>
+          {file ? <div className="quick-library-file"><FileVideo2 /><span>{file.name}</span></div> : <div className="quick-library-empty"><FileVideo2 /><span>尚未选择视频</span><small>从一场比赛开始</small></div>}
+        </div>
+        <footer className="quick-sidebar-footer"><span className="quick-privacy-dot" />视频仅在本机处理<a href="https://github.com/TempestShaw/Smart-Badminton/blob/main/THIRD_PARTY_NOTICES.md">开源与许可 ↗</a></footer>
+      </aside>
       <header className="quick-topbar">
-        <div className="brand"><span className="brand-mark">SB</span><div><strong>SMART BADMINTON</strong><span>BROWSER QUICK</span></div></div>
+        <span className="quick-page-label">比赛剪辑 <span>/ {file ? "编辑工作台" : "新建项目"}</span></span>
         <div className="quick-engine-switch" aria-label="执行引擎">
           <button className="selected"><Globe2 />浏览器版</button>
           <button onClick={onSwitchNative}><Gauge />精准版</button>
@@ -233,12 +243,21 @@ export function BrowserQuickStudio({ onSwitchNative }: { onSwitchNative: () => v
 
       {!file ? (
         <main className="quick-empty">
-          <div className="quick-empty-icon"><Upload /></div>
-          <h1>在浏览器完成剪片</h1>
-          <p>选择本机视频，分析结果与影片都留在这台电脑。</p>
-          <Button size="lg" onClick={() => inputRef.current?.click()}><FileVideo2 />选择比赛视频</Button>
-          <button className="quick-native-link" onClick={onSwitchNative}>需要完整球路与比分？使用精准版</button>
-          <a className="quick-license-link" href="https://github.com/TempestShaw/Smart-Badminton/blob/main/THIRD_PARTY_NOTICES.md">开源与许可</a>
+          <div className="quick-empty-icon"><Scissors /></div>
+          <p className="eyebrow">SMART BADMINTON STUDIO</p>
+          <h1>留下每一个精彩回合</h1>
+          <p>让等待退场，让比赛继续。<br />选择视频，整理回合，轻松完成剪辑。</p>
+          <section className="quick-upload-card" aria-labelledby="upload-title">
+            <div className="quick-card-heading"><h2 id="upload-title">导入比赛视频</h2><span>01 / 开始</span></div>
+            <button className="quick-upload-zone" onClick={() => inputRef.current?.click()}>
+              <span className="quick-upload-icon"><Upload /></span>
+              <strong>点击选择比赛视频</strong>
+              <span>MP4、MOV、M4V 或 WebM</span>
+            </button>
+            <div className="quick-upload-note"><span className="quick-privacy-dot" />无需上传，视频与分析结果都留在这台电脑。</div>
+            <div className="quick-workflow-steps"><span><b>01</b> 选择视频</span><span><b>02</b> 分析与微调</span><span><b>03</b> 导出精彩</span></div>
+          </section>
+          <button className="quick-native-link" onClick={onSwitchNative}>需要完整球路与比分？ <strong>探索精准版 →</strong></button>
         </main>
       ) : (
         <main className="quick-workspace">
@@ -260,7 +279,7 @@ export function BrowserQuickStudio({ onSwitchNative }: { onSwitchNative: () => v
               /> : null}
             </div>
             <div className="quick-player-controls">
-              <Button size="icon" variant={playing ? "outline" : "secondary"} onClick={togglePlayback}>{playing ? <Pause /> : <Play />}</Button>
+              <Button aria-label={playing ? "暂停" : "播放"} size="icon" variant={playing ? "outline" : "secondary"} onClick={togglePlayback}>{playing ? <Pause /> : <Play />}</Button>
               <strong>{formatTime(currentTime, false)} / {formatTime(videoInfo?.duration ?? 0, false)}</strong>
               <input aria-label="视频播放位置" type="range" min={0} max={videoInfo?.duration ?? 1} step={0.01} value={currentTime} onChange={(event) => seekTo(Number(event.target.value))} />
             </div>
