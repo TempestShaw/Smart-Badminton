@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import { Download, Gauge, Globe2, Laptop, Sparkles } from "lucide-react";
 
+import { ThemeToggle } from "@/components/theme-controls";
 import { Brand } from "@/components/brand";
 import { BrowserQuickStudio } from "@/components/browser-quick-studio";
 import { StudioApp } from "@/components/studio-app";
@@ -40,9 +41,12 @@ export function EngineShell() {
     <main className="native-connect">
       <div className="native-connect-header">
         <Brand />
-        <div className="quick-engine-switch" aria-label="执行引擎">
-          <button onClick={() => switchMode("browser")}><Globe2 />浏览器版</button>
-          <button className="selected"><Gauge />精准版</button>
+        <div className="native-connect-controls">
+          <ThemeToggle />
+          <div className="quick-engine-switch" aria-label="执行引擎">
+            <button onClick={() => switchMode("browser")}><Globe2 />浏览器版</button>
+            <button className="selected"><Gauge />精准版</button>
+          </div>
         </div>
       </div>
       <section className="native-connect-card">

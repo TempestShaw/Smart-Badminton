@@ -67,7 +67,7 @@ export function DirectoryPicker({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-2xl border-border bg-popover text-popover-foreground">
+      <DialogContent className="directory-picker border-border bg-popover text-popover-foreground">
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2"><FolderOpen className="size-5 text-primary" />{title}</DialogTitle>
           <DialogDescription>{description}</DialogDescription>

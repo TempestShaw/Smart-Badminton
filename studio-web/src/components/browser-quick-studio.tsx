@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type PointerEvent as ReactPointerEvent } from "react";
 import { Download, FileVideo2, Gauge, Globe2, Pause, Play, Plus, Save, Scissors, Square, Trash2, Upload } from "lucide-react";
 
+import { ThemeToggle } from "@/components/theme-controls";
 import { Brand } from "@/components/brand";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -228,6 +229,7 @@ export function BrowserQuickStudio({ onSwitchNative }: { onSwitchNative: () => v
           <button onClick={onSwitchNative}><Gauge />精准版</button>
         </div>
         <div className="quick-top-actions">
+          <ThemeToggle />
           <Badge variant="outline">本地处理</Badge>
           {file ? <Button size="sm" variant="outline" onClick={() => inputRef.current?.click()}><FileVideo2 />更换视频</Button> : null}
           <Button size="sm" disabled={!dirty || !file} onClick={save}><Save />保存</Button>

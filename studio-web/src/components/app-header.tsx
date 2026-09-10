@@ -2,6 +2,7 @@
 
 import { Clapperboard, Globe2, Redo2, Save, Undo2 } from "lucide-react";
 import { useState } from "react";
+import { ThemeToggle } from "@/components/theme-controls";
 import { Brand } from "@/components/brand";
 
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from "@/components/ui/alert-dialog";
@@ -28,6 +29,7 @@ export function AppHeader({ studio, onSwitchEngine }: { studio: StudioController
         <span>{studio.project?.video.name ?? "正在载入项目…"}</span>
       </div>
       <div className="top-actions">
+        <ThemeToggle />
         {onSwitchEngine ? <Button size="sm" variant="ghost" onClick={onSwitchEngine}><Globe2 />浏览器版</Button> : null}
         <BackgroundJobCenter studio={studio} />
         <StudioTutorial studio={studio} />

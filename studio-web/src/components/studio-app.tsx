@@ -67,7 +67,7 @@ export function StudioApp({ onSwitchEngine }: { onSwitchEngine?: () => void }) {
   }, [editBoundary, project, selectedIndex, selectedSegment, videoRef]);
 
   return (
-    <>
+    <div className="native-studio-app">
       <AppHeader studio={studio} onSwitchEngine={onSwitchEngine} />
       <ProjectBrowser studio={studio} />
       <WorkflowPanel studio={studio} toolMode={toolMode} onToolMode={changeToolMode} />
@@ -84,6 +84,6 @@ export function StudioApp({ onSwitchEngine }: { onSwitchEngine?: () => void }) {
         </AlertDialogContent>
       </AlertDialog>
       {studio.loading ? <div className="loading-overlay"><span className="loader" /><strong>正在载入本地项目…</strong></div> : null}
-    </>
+    </div>
   );
 }

@@ -1,5 +1,5 @@
 import Image from "next/image";
-import logo from "@/assets/smart-badminton-logo.png";
+import logo from "@/assets/smart-badminton-mark.png";
 
 export function Brand() {
   return (
