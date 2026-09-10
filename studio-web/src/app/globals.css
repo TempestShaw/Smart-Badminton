@@ -735,3 +735,8 @@ html[lang="en"] .score-heading > .eyebrow { white-space: nowrap; }
   .guide-header, .guide-footer, .guide-footer-actions { flex-wrap: wrap; gap: 8px; }
   .guide-dialog { height: auto; max-height: calc(100dvh - 32px); overflow-y: auto; }
 }
+
+.native-studio-app .workflow-content { height: auto; }
+.native-studio-app .tool-grid { grid-template-columns: repeat(auto-fit, minmax(min(100%, 240px), 1fr)); }
+.native-studio-app .shuttle-status-note, .native-studio-app .visual-analysis-card { grid-template-columns: minmax(0, 1fr); gap: 10px; }
+.native-studio-app .tool-note [data-slot="button"] { max-width: 100%; min-height: 32px; height: auto; white-space: normal; }
