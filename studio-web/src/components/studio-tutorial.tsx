@@ -1,5 +1,8 @@
 "use client";
 
+import { useTranslation } from "react-i18next";
+import { t, translateMessage } from "@/lib/i18n";
+
 import { useEffect, useRef, useState } from "react";
 import {
   BookOpenText,
@@ -78,10 +81,13 @@ function focusGuideTarget(step: GuideStep) {
 }
 
 export function StudioTutorial({ studio }: { studio: StudioController }) {
+  const { i18n } = useTranslation();
+  const language = i18n.resolvedLanguage === "zh" ? "zh" : "en";
   const [open, setOpen] = useState(false);
   const [view, setView] = useState<"guide" | "manual">("guide");
   const [selected, setSelected] = useState(0);
-  const [markdown, setMarkdown] = useState("");
+  const [manuals, setManuals] = useState<Record<string, string>>({});
+  const markdown = manuals[language] ?? "";
   const [error, setError] = useState("");
   const autoOpened = useRef(false);
   const projectId = studio.project?.id;
@@ -109,11 +115,12 @@ export function StudioTutorial({ studio }: { studio: StudioController }) {
   }, [currentStep, libraryPath, projectId, studio.loading]);
 
   useEffect(() => {
-    if (!open || view !== "manual" || markdown || error) return;
+    if (!open || view !== "manual" || markdown) return;
+    setError("");
     let active = true;
-    apiRequest<{ markdown: string }>("/api/tutorial")
+    apiRequest<{ markdown: string }>(`/api/tutorial?language=${language}`)
       .then((payload) => {
-        if (active) setMarkdown(payload.markdown);
+        if (active) setManuals((current) => ({ ...current, [language]: payload.markdown }));
       })
       .catch((reason: Error) => {
         if (active) setError(reason.message);
@@ -121,7 +128,7 @@ export function StudioTutorial({ studio }: { studio: StudioController }) {
     return () => {
       active = false;
     };
-  }, [error, markdown, open, view]);
+  }, [language, markdown, open, view]);
 
   const changeOpen = (next: boolean) => {
     if (next) {
@@ -142,24 +149,24 @@ export function StudioTutorial({ studio }: { studio: StudioController }) {
   return (
     <Dialog open={open} onOpenChange={changeOpen}>
       <DialogTrigger asChild>
-        <Button size="sm" variant="ghost" className="tutorial-tab"><BookOpenText />使用指南</Button>
+        <Button size="sm" variant="ghost" className="tutorial-tab"><BookOpenText />{t("使用指南")}</Button>
       </DialogTrigger>
       <DialogContent className="tutorial-dialog guide-dialog max-w-5xl">
         <DialogHeader className="guide-header">
           <div>
-            <DialogTitle>{view === "guide" ? "六步完成第一条成片" : "Studio 完整手册"}</DialogTitle>
-            <DialogDescription>{view === "guide" ? `${completeCount} / 6 已完成` : "按功能查阅详细操作。"}</DialogDescription>
+            <DialogTitle>{view === "guide" ? t("六步完成第一条成片") : t("Studio 完整手册")}</DialogTitle>
+            <DialogDescription>{view === "guide" ? t("{{value1}} / 6 已完成", { value1: completeCount }) : t("按功能查阅详细操作。")}</DialogDescription>
           </div>
-          <div className="guide-view-switch" aria-label="指南视图">
-            <Button size="sm" variant={view === "guide" ? "default" : "ghost"} onClick={() => setView("guide")}>快速开始</Button>
-            <Button size="sm" variant={view === "manual" ? "default" : "ghost"} onClick={() => setView("manual")}>完整手册</Button>
+          <div className="guide-view-switch" aria-label={t("指南视图")}>
+            <Button size="sm" variant={view === "guide" ? "default" : "ghost"} onClick={() => setView("guide")}>{t("快速开始")}</Button>
+            <Button size="sm" variant={view === "manual" ? "default" : "ghost"} onClick={() => setView("manual")}>{t("完整手册")}</Button>
           </div>
         </DialogHeader>
 
         {view === "guide" ? (
           <div className="guide-content">
-            <Progress className="guide-progress" value={completeCount / guideSteps.length * 100} aria-label={`已完成 ${completeCount} 个步骤`} />
-            <nav className="guide-steps" aria-label="Studio 使用步骤">
+            <Progress className="guide-progress" value={completeCount / guideSteps.length * 100} aria-label={t("已完成 {{value1}} 个步骤", { value1: completeCount })} />
+            <nav className="guide-steps" aria-label={t("Studio 使用步骤")}>
               {guideSteps.map((item, index) => {
                 const Icon = item.icon;
                 return (
@@ -171,7 +178,7 @@ export function StudioTutorial({ studio }: { studio: StudioController }) {
                     onClick={() => setSelected(index)}
                   >
                     <span className="guide-step-number">{index + 1}</span>
-                    <span><strong>{item.title}</strong></span>
+                    <span><strong>{t(item.title)}</strong></span>
                     {completed[index] ? <Check aria-hidden="true" /> : <Icon aria-hidden="true" />}
                   </button>
                 );
@@ -182,23 +189,23 @@ export function StudioTutorial({ studio }: { studio: StudioController }) {
               <div className="guide-detail-icon"><StepIcon aria-hidden="true" /></div>
               <div className="guide-detail-copy">
                 <span className="eyebrow">STEP {String(selected + 1).padStart(2, "0")}</span>
-                <h3>{step.title}</h3>
-                <p>{step.description}</p>
+                <h3>{t(step.title)}</h3>
+                <p>{t(step.description)}</p>
               </div>
-              <div className="guide-outcome"><span>完成后</span><strong>{step.outcome}</strong></div>
+              <div className="guide-outcome"><span>{t("完成后")}</span><strong>{t(step.outcome)}</strong></div>
             </section>
 
             <footer className="guide-footer">
-              <Button variant="ghost" disabled={selected === 0} onClick={() => setSelected((value) => Math.max(0, value - 1))}>上一步</Button>
+              <Button variant="ghost" disabled={selected === 0} onClick={() => setSelected((value) => Math.max(0, value - 1))}>{t("上一步")}</Button>
               <div className="guide-footer-actions">
-                <Button variant="outline" onClick={() => setSelected((value) => Math.min(guideSteps.length - 1, value + 1))} disabled={selected === guideSteps.length - 1}>下一步</Button>
-                <Button onClick={goToStep}>{step.action}</Button>
+                <Button variant="outline" onClick={() => setSelected((value) => Math.min(guideSteps.length - 1, value + 1))} disabled={selected === guideSteps.length - 1}>{t("下一步")}</Button>
+                <Button onClick={goToStep}>{t(step.action)}</Button>
               </div>
             </footer>
           </div>
         ) : (
           <ScrollArea className="tutorial-scroll">
-            {error ? <div className="tutorial-error"><strong>手册载入失败</strong><span>{error}</span></div> : null}
+            {error ? <div className="tutorial-error"><strong>{t("手册载入失败")}</strong><span>{translateMessage(error)}</span></div> : null}
             {!error && !markdown ? <div className="tutorial-loading"><Skeleton /><Skeleton /><Skeleton /></div> : null}
             {markdown ? <article className="markdown-doc"><Markdown>{markdown}</Markdown></article> : null}
           </ScrollArea>

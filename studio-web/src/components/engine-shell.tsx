@@ -1,8 +1,12 @@
 "use client";
 
+import { useTranslation } from "react-i18next";
+import { t } from "@/lib/i18n";
+
 import { useEffect, useState } from "react";
 import { Download, Gauge, Globe2, Laptop, Sparkles } from "lucide-react";
 
+import { LanguageSwitcher } from "@/components/language-controls";
 import { ThemeToggle } from "@/components/theme-controls";
 import { Brand } from "@/components/brand";
 import { BrowserQuickStudio } from "@/components/browser-quick-studio";
@@ -16,6 +20,7 @@ function localStudioHost(): boolean {
 }
 
 export function EngineShell() {
+  useTranslation();
   const [mode, setMode] = useState<EngineMode>("detecting");
   const [localHost, setLocalHost] = useState(false);
 
@@ -42,21 +47,21 @@ export function EngineShell() {
       <div className="native-connect-header">
         <Brand />
         <div className="native-connect-controls">
-          <ThemeToggle />
-          <div className="quick-engine-switch" aria-label="执行引擎">
-            <button onClick={() => switchMode("browser")}><Globe2 />浏览器版</button>
-            <button className="selected"><Gauge />精准版</button>
+          <LanguageSwitcher /><ThemeToggle />
+          <div className="quick-engine-switch" aria-label={t("执行引擎")}>
+            <button onClick={() => switchMode("browser")}><Globe2 />{t("浏览器版")}</button>
+            <button className="selected"><Gauge />{t("精准版")}</button>
           </div>
         </div>
       </div>
       <section className="native-connect-card">
         <div className="native-connect-icon"><Sparkles /></div>
-        <p className="eyebrow">NATIVE ACCURATE</p>
-        <h1>原生精准版</h1>
-        <p>完整球路、姿态、比分与 CUDA 加速。</p>
+        <p className="eyebrow">{t("NATIVE ACCURATE")}</p>
+        <h1>{t("原生精准版")}</h1>
+        <p>{t("完整球路、姿态、比分与 CUDA 加速。")}</p>
         <div className="native-connect-actions">
-          <Button asChild size="lg"><a href="http://127.0.0.1:8765/?engine=native"><Laptop />打开本地 Studio</a></Button>
-          <Button asChild size="lg" variant="outline"><a href="https://github.com/TempestShaw/Smart-Badminton/releases/latest"><Download />下载安装包</a></Button>
+          <Button asChild size="lg"><a href="http://127.0.0.1:8765/?engine=native"><Laptop />{t("打开本地 Studio")}</a></Button>
+          <Button asChild size="lg" variant="outline"><a href="https://github.com/TempestShaw/Smart-Badminton/releases/latest"><Download />{t("下载安装包")}</a></Button>
         </div>
       </section>
     </main>

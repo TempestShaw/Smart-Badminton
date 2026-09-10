@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import "./globals.css";
+import { LanguageProvider } from "@/components/language-controls";
 import { ThemeProvider } from "@/components/theme-controls";
 import { Toaster } from "@/components/ui/sonner";
 import { TooltipProvider } from "@/components/ui/tooltip";
@@ -12,12 +13,14 @@ export const metadata: Metadata = {
 
 export default function RootLayout({ children }: Readonly<{ children: React.ReactNode }>) {
   return (
-    <html lang="zh-CN" className="font-sans antialiased" suppressHydrationWarning>
+    <html lang="en" className="font-sans antialiased" suppressHydrationWarning>
       <body>
-        <ThemeProvider>
-          <TooltipProvider>{children}</TooltipProvider>
-          <Toaster richColors position="bottom-right" />
-        </ThemeProvider>
+        <LanguageProvider>
+          <ThemeProvider>
+            <TooltipProvider>{children}</TooltipProvider>
+            <Toaster richColors position="bottom-right" />
+          </ThemeProvider>
+        </LanguageProvider>
       </body>
     </html>
   );

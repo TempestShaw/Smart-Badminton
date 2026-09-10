@@ -1,4 +1,5 @@
 "use client";
+import { t, translateMessage } from "@/lib/i18n";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { toast as showToast } from "sonner";
@@ -58,8 +59,8 @@ export function useStudioController() {
   const [scoreReviewActive, setScoreReviewActive] = useState(false);
 
   const notify = useCallback((text: string, error = false) => {
-    if (error) showToast.error(text);
-    else showToast.success(text);
+    if (error) showToast.error(translateMessage(text));
+    else showToast.success(translateMessage(text));
   }, []);
 
   const applyProject = useCallback((payload: ProjectPayload) => {
@@ -113,7 +114,7 @@ export function useStudioController() {
       .then(([health, projectPayload, libraryPayload]) => {
         if (!active) return;
         if (!health.ok || health.api_schema_version !== API_SCHEMA_VERSION) {
-          throw new Error(`Studio API 版本不兼容：需要 ${API_SCHEMA_VERSION}，实际 ${health.api_schema_version}`);
+          throw new Error(t("Studio API 版本不兼容：需要 {{value1}}，实际 {{value2}}", { value1: API_SCHEMA_VERSION, value2: health.api_schema_version }));
         }
         applyProject(projectPayload);
         setLibrary(libraryPayload);
@@ -209,7 +210,7 @@ export function useStudioController() {
     const maximum = insertion < segments.length ? segments[insertion].start : project.video.duration;
     const start = Math.max(minimum, time);
     const end = Math.min(maximum, start + 2);
-    if (end - start < 0.1) return notify("播放头附近没有足够的空白区间", true);
+    if (end - start < 0.1) return notify(t("播放头附近没有足够的空白区间"), true);
     const next = cloneSegments(segments);
     next.splice(insertion, 0, {
       id: `new-${Date.now()}`,
@@ -227,7 +228,7 @@ export function useStudioController() {
     const segment = segments[selectedIndex];
     const time = frameSnap(videoRef.current?.currentTime ?? 0, project.video.fps);
     if (!segment || time <= segment.start + 0.1 || time >= segment.end - 0.1) {
-      return notify("请把播放头放在片段内部再分割", true);
+      return notify(t("请把播放头放在片段内部再分割"), true);
     }
     const next = cloneSegments(segments);
     next[selectedIndex].end = time;
@@ -257,7 +258,7 @@ export function useStudioController() {
       setDirty(false);
       setHistory([]);
       setFuture([]);
-      notify("时间表已保存");
+      notify(t("时间表已保存"));
       await refreshLibrary();
       return true;
     } catch (error) {
@@ -276,7 +277,7 @@ export function useStudioController() {
           body: JSON.stringify({ path }),
         });
         setLibrary(payload);
-        notify(`找到 ${payload.videos.length} 个源视频`);
+        notify(t("找到 {{value1}} 个源视频", { value1: payload.videos.length }));
         return true;
       } catch (error) {
         notify((error as Error).message, true);
@@ -294,7 +295,7 @@ export function useStudioController() {
         body: JSON.stringify({ project_id: project.id, directory, filename }),
       });
       setProject((current) => current ? { ...current, output: payload, output_path: payload.path } : current);
-      notify(`输出位置已设置为 ${payload.path}`);
+      notify(t("输出位置已设置为 {{value1}}", { value1: payload.path }));
       return true;
     } catch (error) {
       notify((error as Error).message, true);
@@ -312,7 +313,7 @@ export function useStudioController() {
         });
         applyProject(payload);
         await refreshLibrary();
-        notify(`已打开 ${payload.video.name}`);
+        notify(t("已打开 {{value1}}", { value1: payload.video.name }));
       } catch (error) {
         notify((error as Error).message, true);
       } finally {
@@ -327,7 +328,7 @@ export function useStudioController() {
       if (!project || selectedIndex < 0) return;
       const rally = selectedIndex + 1;
       if (dirty || !(score.rallies ?? []).some((row) => row.rally === rally)) {
-        notify("请先保存时间表，再修改与当前片段一致的比分", true);
+        notify(t("请先保存时间表，再修改与当前片段一致的比分"), true);
         return;
       }
       const current = score.corrections?.find((row) => row.rally === rally) ?? {
@@ -366,13 +367,13 @@ export function useStudioController() {
           if (!unresolved.length) {
             setScoreReviewActive(false);
             videoRef.current?.pause();
-            notify("比分标注完成");
+            notify(t("比分标注完成"));
           } else {
             const next = unresolved.find((candidate) => candidate > rally) ?? unresolved[0];
             playScoreReviewRally(next);
           }
         } else {
-          notify("比分已保存");
+          notify(t("比分已保存"));
         }
         return true;
       } catch (error) {
@@ -393,7 +394,7 @@ export function useStudioController() {
         body: JSON.stringify({ project_id: project.id }),
       });
       setScore(payload);
-      notify(`比分计算完成：${payload.resolved ?? 0}/${segments.length} 分已识别`);
+      notify(t("比分计算完成：{{value1}}/{{value2}} 分已识别", { value1: payload.resolved ?? 0, value2: segments.length }));
       return true;
     } catch (error) {
       notify((error as Error).message, true);
@@ -413,7 +414,7 @@ export function useStudioController() {
       });
       completionKeyRef.current = "";
       setAnalysisStatus(payload);
-      notify(payload.state === "complete" ? payload.label ?? "没有待标注回合" : "终局标注已开始");
+      notify(payload.state === "complete" ? payload.label ?? t("没有待标注回合") : t("终局标注已开始"));
     } catch (error) {
       notify((error as Error).message, true);
     }
@@ -428,7 +429,7 @@ export function useStudioController() {
       });
       setScore(payload.score);
       setProject((current) => current ? { ...current, score: payload.score, score_labeling: payload.score_labeling } : current);
-      notify(decision === "accepted" ? "建议已采用" : "建议已忽略");
+      notify(decision === "accepted" ? t("建议已采用") : t("建议已忽略"));
     } catch (error) {
       notify((error as Error).message, true);
     }
@@ -472,7 +473,7 @@ export function useStudioController() {
         });
         completionKeyRef.current = "";
         setAnalysisStatus(payload);
-        notify(batch ? "批量自动分析已开始" : "当前视频已开始自动分析");
+        notify(batch ? t("批量自动分析已开始") : t("当前视频已开始自动分析"));
       } catch (error) {
         notify((error as Error).message, true);
       }
@@ -489,7 +490,7 @@ export function useStudioController() {
       });
       completionKeyRef.current = "";
       setAnalysisStatus(payload);
-      notify(payload.state === "complete" ? "球路已是最新" : force ? "正在重新分析球路" : "球路分析已开始");
+      notify(payload.state === "complete" ? t("球路已是最新") : force ? t("正在重新分析球路") : t("球路分析已开始"));
     } catch (error) {
       notify((error as Error).message, true);
     }
@@ -504,7 +505,7 @@ export function useStudioController() {
       });
       completionKeyRef.current = "";
       setAnalysisStatus(payload);
-      notify(payload.state === "complete" ? "视觉分析已是最新" : "视觉分析已开始");
+      notify(payload.state === "complete" ? t("视觉分析已是最新") : t("视觉分析已开始"));
     } catch (error) {
       notify((error as Error).message, true);
     }
@@ -528,7 +529,7 @@ export function useStudioController() {
           const key = `${payload.job_id ?? "analysis"}:${payload.message ?? payload.label ?? "error"}`;
           if (key !== completionKeyRef.current) {
             completionKeyRef.current = key;
-            notify(payload.message ?? payload.label ?? "后台分析失败", true);
+            notify(payload.message ?? payload.label ?? t("后台分析失败"), true);
           }
         }
       } catch (error) {
@@ -564,7 +565,7 @@ export function useStudioController() {
         }),
       });
       setRenderStatus(payload);
-      notify("开始输出成片");
+      notify(t("开始输出成片"));
     } catch (error) {
       notify((error as Error).message, true);
     }
@@ -578,9 +579,9 @@ export function useStudioController() {
         setRenderStatus(payload);
         if (payload.state === "complete") {
           setProject((current) => current ? { ...current, output: { ...current.output, file_exists: true } } : current);
-          notify(`输出完成：${payload.output}`);
+          notify(t("输出完成：{{value1}}", { value1: payload.output }));
         }
-        if (payload.state === "error") notify(payload.message || "输出失败", true);
+        if (payload.state === "error") notify(payload.message || t("输出失败"), true);
       } catch (error) {
         notify((error as Error).message, true);
       }
@@ -608,11 +609,11 @@ export function useStudioController() {
   );
   const startScoreReview = useCallback(() => {
     if (dirty) {
-      notify("请先保存时间表", true);
+      notify(t("请先保存时间表"), true);
       return;
     }
     if (!scoreReviewRallies.length) {
-      notify("没有待标注比分");
+      notify(t("没有待标注比分"));
       return;
     }
     const currentRally = selectedIndex + 1;

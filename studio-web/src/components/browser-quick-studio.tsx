@@ -1,8 +1,12 @@
 "use client";
 
+import { useTranslation } from "react-i18next";
+import { t, translateMessage } from "@/lib/i18n";
+
 import { useCallback, useEffect, useMemo, useRef, useState, type PointerEvent as ReactPointerEvent } from "react";
 import { Download, FileVideo2, Gauge, Globe2, Pause, Play, Plus, Save, Scissors, Square, Trash2, Upload } from "lucide-react";
 
+import { LanguageSwitcher } from "@/components/language-controls";
 import { ThemeToggle } from "@/components/theme-controls";
 import { Brand } from "@/components/brand";
 import { Badge } from "@/components/ui/badge";
@@ -30,6 +34,7 @@ function normalizedSegments(segments: Segment[]): Segment[] {
 }
 
 export function BrowserQuickStudio({ onSwitchNative }: { onSwitchNative: () => void }) {
+  useTranslation();
   const inputRef = useRef<HTMLInputElement>(null);
   const videoRef = useRef<HTMLVideoElement>(null);
   const taskRef = useRef<AbortController | null>(null);
@@ -43,7 +48,7 @@ export function BrowserQuickStudio({ onSwitchNative }: { onSwitchNative: () => v
   const [playing, setPlaying] = useState(false);
   const [task, setTask] = useState<TaskState>("idle");
   const [progress, setProgress] = useState(0);
-  const [status, setStatus] = useState("选择一段比赛视频");
+  const [status, setStatus] = useState(t("选择一段比赛视频"));
   const [error, setError] = useState("");
   const [dirty, setDirty] = useState(false);
 
@@ -77,7 +82,7 @@ export function BrowserQuickStudio({ onSwitchNative }: { onSwitchNative: () => v
     setSegments(saved?.segments ?? []);
     setSelectedIndex(0);
     setDirty(false);
-    setStatus(saved ? "已恢复本地时间轴" : "可以开始快速分析");
+    setStatus(saved ? t("已恢复本地时间轴") : t("可以开始快速分析"));
   };
 
   const project = useCallback((): BrowserProject | null => {
@@ -103,7 +108,7 @@ export function BrowserQuickStudio({ onSwitchNative }: { onSwitchNative: () => v
     if (!payload) return;
     saveBrowserProject(payload);
     setDirty(false);
-    setStatus("时间轴已保存到本机");
+    setStatus(t("时间轴已保存到本机"));
   };
 
   const analyze = async () => {
@@ -121,10 +126,10 @@ export function BrowserQuickStudio({ onSwitchNative }: { onSwitchNative: () => v
       }, controller.signal);
       setVideoInfo({ duration: result.duration, width: result.width, height: result.height });
       updateSegments(result.segments, 0);
-      setStatus(`找到 ${result.segments.length} 个候选回合`);
+      setStatus(t("找到 {{value1}} 个候选回合", { value1: result.segments.length }));
     } catch (caught) {
       if ((caught as Error).name !== "AbortError") setError((caught as Error).message);
-      else setStatus("分析已取消");
+      else setStatus(t("分析已取消"));
     } finally {
       setTask("idle");
       taskRef.current = null;
@@ -146,7 +151,7 @@ export function BrowserQuickStudio({ onSwitchNative }: { onSwitchNative: () => v
       }, controller.signal);
     } catch (caught) {
       if ((caught as Error).name !== "AbortError") setError((caught as Error).message);
-      else setStatus("输出已取消");
+      else setStatus(t("输出已取消"));
     } finally {
       setTask("idle");
       taskRef.current = null;
@@ -215,29 +220,29 @@ export function BrowserQuickStudio({ onSwitchNative }: { onSwitchNative: () => v
     <div className="browser-quick-app">
       <aside className="quick-sidebar">
         <Brand />
-        <Button className="quick-new-project" onClick={() => inputRef.current?.click()}><Plus />{file ? "更换比赛视频" : "新建剪片"}</Button>
+        <Button className="quick-new-project" onClick={() => inputRef.current?.click()}><Plus />{file ? t("更换比赛视频") : t("新建剪片")}</Button>
         <div className="quick-library">
-          <span className="eyebrow">我的工作台</span>
-          {file ? <div className="quick-library-file"><FileVideo2 /><span>{file.name}</span></div> : <div className="quick-library-empty"><FileVideo2 /><span>尚未选择视频</span><small>从一场比赛开始</small></div>}
+          <span className="eyebrow">{t("我的工作台")}</span>
+          {file ? <div className="quick-library-file"><FileVideo2 /><span>{file.name}</span></div> : <div className="quick-library-empty"><FileVideo2 /><span>{t("尚未选择视频")}</span><small>{t("从一场比赛开始")}</small></div>}
         </div>
-        <footer className="quick-sidebar-footer"><span className="quick-privacy-dot" />视频仅在本机处理<a href="https://github.com/TempestShaw/Smart-Badminton/blob/main/THIRD_PARTY_NOTICES.md">开源与许可 ↗</a></footer>
+        <footer className="quick-sidebar-footer"><span className="quick-privacy-dot" />{t("视频仅在本机处理")}<a href="https://github.com/TempestShaw/Smart-Badminton/blob/main/THIRD_PARTY_NOTICES.md">{t("开源与许可 ↗")}</a></footer>
       </aside>
       <header className="quick-topbar">
-        <span className="quick-page-label">比赛剪辑 <span>/ {file ? "编辑工作台" : "新建项目"}</span></span>
-        <div className="quick-engine-switch" aria-label="执行引擎">
-          <button className="selected"><Globe2 />浏览器版</button>
-          <button onClick={onSwitchNative}><Gauge />精准版</button>
+        <span className="quick-page-label">{t("比赛剪辑")}<span>/ {file ? t("编辑工作台") : t("新建项目")}</span></span>
+        <div className="quick-engine-switch" aria-label={t("执行引擎")}>
+          <button className="selected"><Globe2 />{t("浏览器版")}</button>
+          <button onClick={onSwitchNative}><Gauge />{t("精准版")}</button>
         </div>
         <div className="quick-top-actions">
-          <ThemeToggle />
-          <Badge variant="outline">本地处理</Badge>
-          {file ? <Button size="sm" variant="outline" onClick={() => inputRef.current?.click()}><FileVideo2 />更换视频</Button> : null}
-          <Button size="sm" disabled={!dirty || !file} onClick={save}><Save />保存</Button>
-          <Button size="sm" variant="secondary" disabled={!segments.length || task !== "idle"} onClick={() => void exportVideo()}><Download />输出 MP4</Button>
+          <LanguageSwitcher /><ThemeToggle />
+          <Badge variant="outline">{t("本地处理")}</Badge>
+          {file ? <Button size="sm" variant="outline" onClick={() => inputRef.current?.click()}><FileVideo2 />{t("更换视频")}</Button> : null}
+          <Button size="sm" disabled={!dirty || !file} onClick={save}><Save />{t("保存")}</Button>
+          <Button size="sm" variant="secondary" disabled={!segments.length || task !== "idle"} onClick={() => void exportVideo()}><Download />{t("输出 MP4")}</Button>
         </div>
       </header>
 
-      <input ref={inputRef} className="sr-only" type="file" accept="video/mp4,video/webm,video/quicktime,.mov,.m4v" onChange={(event) => {
+      <input ref={inputRef} aria-label={t("导入比赛视频")} className="sr-only" type="file" accept="video/mp4,video/webm,video/quicktime,.mov,.m4v" onChange={(event) => {
         const next = event.target.files?.[0];
         if (next) chooseFile(next);
         event.currentTarget.value = "";
@@ -247,19 +252,19 @@ export function BrowserQuickStudio({ onSwitchNative }: { onSwitchNative: () => v
         <main className="quick-empty">
           <div className="quick-empty-icon"><Scissors /></div>
           <p className="eyebrow">SMART BADMINTON STUDIO</p>
-          <h1>留下每一个精彩回合</h1>
-          <p>让等待退场，让比赛继续。<br />选择视频，整理回合，轻松完成剪辑。</p>
+          <h1>{t("留下每一个精彩回合")}</h1>
+          <p>{t("让等待退场，让比赛继续。")}<br />{t("选择视频，整理回合，轻松完成剪辑。")}</p>
           <section className="quick-upload-card" aria-labelledby="upload-title">
-            <div className="quick-card-heading"><h2 id="upload-title">导入比赛视频</h2><span>01 / 开始</span></div>
+            <div className="quick-card-heading"><h2 id="upload-title">{t("导入比赛视频")}</h2><span>{t("01 / 开始")}</span></div>
             <button className="quick-upload-zone" onClick={() => inputRef.current?.click()}>
               <span className="quick-upload-icon"><Upload /></span>
-              <strong>点击选择比赛视频</strong>
-              <span>MP4、MOV、M4V 或 WebM</span>
+              <strong>{t("点击选择比赛视频")}</strong>
+              <span>{t("MP4、MOV、M4V 或 WebM")}</span>
             </button>
-            <div className="quick-upload-note"><span className="quick-privacy-dot" />无需上传，视频与分析结果都留在这台电脑。</div>
-            <div className="quick-workflow-steps"><span><b>01</b> 选择视频</span><span><b>02</b> 分析与微调</span><span><b>03</b> 导出精彩</span></div>
+            <div className="quick-upload-note"><span className="quick-privacy-dot" />{t("无需上传，视频与分析结果都留在这台电脑。")}</div>
+            <div className="quick-workflow-steps"><span><b>01</b> {t("选择视频")}</span><span><b>02</b> {t("分析与微调")}</span><span><b>03</b> {t("导出精彩")}</span></div>
           </section>
-          <button className="quick-native-link" onClick={onSwitchNative}>需要完整球路与比分？ <strong>探索精准版 →</strong></button>
+          <button className="quick-native-link" onClick={onSwitchNative}>{t("需要完整球路与比分？")}<strong>{t("探索精准版 →")}</strong></button>
         </main>
       ) : (
         <main className="quick-workspace">
@@ -281,33 +286,33 @@ export function BrowserQuickStudio({ onSwitchNative }: { onSwitchNative: () => v
               /> : null}
             </div>
             <div className="quick-player-controls">
-              <Button aria-label={playing ? "暂停" : "播放"} size="icon" variant={playing ? "outline" : "secondary"} onClick={togglePlayback}>{playing ? <Pause /> : <Play />}</Button>
+              <Button aria-label={playing ? t("暂停") : t("播放")} size="icon" variant={playing ? "outline" : "secondary"} onClick={togglePlayback}>{playing ? <Pause /> : <Play />}</Button>
               <strong>{formatTime(currentTime, false)} / {formatTime(videoInfo?.duration ?? 0, false)}</strong>
-              <input aria-label="视频播放位置" type="range" min={0} max={videoInfo?.duration ?? 1} step={0.01} value={currentTime} onChange={(event) => seekTo(Number(event.target.value))} />
+              <input aria-label={t("视频播放位置")} type="range" min={0} max={videoInfo?.duration ?? 1} step={0.01} value={currentTime} onChange={(event) => seekTo(Number(event.target.value))} />
             </div>
           </section>
 
           <aside className="quick-inspector">
-            <div><p className="eyebrow">LOCAL ANALYSIS</p><h2>{file.name}</h2><p>{videoInfo ? `${videoInfo.width}×${videoInfo.height} · ${formatTime(videoInfo.duration, false)}` : "读取视频…"}</p></div>
-            <Button disabled={task !== "idle" || !videoInfo} onClick={() => void analyze()}><Scissors />快速分析</Button>
-            {task !== "idle" ? <Button variant="outline" onClick={() => taskRef.current?.abort()}><Square />取消任务</Button> : null}
-            <div className="quick-status" aria-live="polite"><span>{status}</span>{task !== "idle" ? <Progress value={progress * 100} /> : null}</div>
-            {error ? <p className="quick-error">{error}</p> : null}
-            <dl className="quick-stats"><div><dt>片段</dt><dd>{segments.length}</dd></div><div><dt>成片</dt><dd>{formatTime(keptDuration, false)}</dd></div></dl>
+            <div><p className="eyebrow">{t("LOCAL ANALYSIS")}</p><h2>{file.name}</h2><p>{videoInfo ? `${videoInfo.width}×${videoInfo.height} · ${formatTime(videoInfo.duration, false)}` : t("读取视频…")}</p></div>
+            <Button disabled={task !== "idle" || !videoInfo} onClick={() => void analyze()}><Scissors />{t("快速分析")}</Button>
+            {task !== "idle" ? <Button variant="outline" onClick={() => taskRef.current?.abort()}><Square />{t("取消任务")}</Button> : null}
+            <div className="quick-status" aria-live="polite"><span>{translateMessage(status)}</span>{task !== "idle" ? <Progress value={progress * 100} /> : null}</div>
+            {error ? <p className="quick-error">{translateMessage(error)}</p> : null}
+            <dl className="quick-stats"><div><dt>{t("片段")}</dt><dd>{segments.length}</dd></div><div><dt>{t("成片")}</dt><dd>{formatTime(keptDuration, false)}</dd></div></dl>
             <div className="quick-edit-actions">
-              <Button size="sm" variant="outline" onClick={addSegment}><Plus />新增</Button>
-              <Button size="sm" variant="outline" disabled={!selected} onClick={splitSegment}><Scissors />分割</Button>
-              <Button size="sm" variant="destructive" disabled={!selected} onClick={deleteSegment}><Trash2 />删除</Button>
+              <Button size="sm" variant="outline" onClick={addSegment}><Plus />{t("新增")}</Button>
+              <Button size="sm" variant="outline" disabled={!selected} onClick={splitSegment}><Scissors />{t("分割")}</Button>
+              <Button size="sm" variant="destructive" disabled={!selected} onClick={deleteSegment}><Trash2 />{t("删除")}</Button>
             </div>
             {selected ? <div className="quick-boundaries">
-              <label>开始<input type="number" step="0.01" value={selected.start.toFixed(2)} onChange={(event) => editBoundary(selectedIndex, "start", Number(event.target.value))} /></label>
-              <label>结束<input type="number" step="0.01" value={selected.end.toFixed(2)} onChange={(event) => editBoundary(selectedIndex, "end", Number(event.target.value))} /></label>
+              <label>{t("开始")}<input type="number" step="0.01" value={selected.start.toFixed(2)} onChange={(event) => editBoundary(selectedIndex, "start", Number(event.target.value))} /></label>
+              <label>{t("结束")}<input type="number" step="0.01" value={selected.end.toFixed(2)} onChange={(event) => editBoundary(selectedIndex, "end", Number(event.target.value))} /></label>
             </div> : null}
-            <Button variant="ghost" disabled={!file || !videoInfo} onClick={() => { const payload = project(); if (payload) downloadProject(payload); }}><Download />导出时间轴</Button>
+            <Button variant="ghost" disabled={!file || !videoInfo} onClick={() => { const payload = project(); if (payload) downloadProject(payload); }}><Download />{t("导出时间轴")}</Button>
           </aside>
 
           <section className="quick-timeline-panel">
-            <div className="quick-timeline-heading"><div><span className="eyebrow">SOURCE TIMELINE</span><strong>{segments.length} 个片段</strong></div><span>{formatTime(currentTime, false)}</span></div>
+            <div className="quick-timeline-heading"><div><span className="eyebrow">{t("SOURCE TIMELINE")}</span><strong>{t("{{count}} 个片段", { count: segments.length })}</strong></div><span>{formatTime(currentTime, false)}</span></div>
             <div className="quick-timeline-scroll">
               <div className="quick-ruler" onPointerDown={(event) => {
                 if (!videoInfo) return;

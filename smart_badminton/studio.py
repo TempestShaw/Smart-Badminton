@@ -1767,12 +1767,13 @@ def create_studio_app(state: StudioState):
         return {"ok": True, "api_schema_version": API_SCHEMA_VERSION, "runtime": _runtime_payload(state)}
 
     @app.get("/api/tutorial")
-    def tutorial():
-        tutorial_path = static_root / "studio-tutorial.zh-CN.md"
+    def tutorial(language: str = "zh"):
+        filename = "studio-tutorial.en.md" if language == "en" else "studio-tutorial.zh-CN.md"
+        tutorial_path = static_root / filename
         if not tutorial_path.exists():
             # Editable source checkouts can run the API before the frontend has
             # copied documentation into the packaged static directory.
-            source_tutorial = Path(__file__).resolve().parent.parent / "docs" / "studio-tutorial.zh-CN.md"
+            source_tutorial = Path(__file__).resolve().parent.parent / "docs" / filename
             if source_tutorial.exists():
                 tutorial_path = source_tutorial
         if not tutorial_path.exists():

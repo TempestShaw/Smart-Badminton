@@ -1,5 +1,8 @@
 "use client";
 
+import { useTranslation } from "react-i18next";
+import { t, translateMessage } from "@/lib/i18n";
+
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Activity, LoaderCircle, Pause, Play, Save, ScanSearch, Scissors, SkipBack, SkipForward, Undo2, X } from "lucide-react";
 
@@ -26,6 +29,7 @@ export function VideoWorkspace({
   onToolDirty: (dirty: boolean) => void;
   onCloseTool: () => void;
 }) {
+  useTranslation();
   const [currentTime, setCurrentTime] = useState(0);
   const [playing, setPlaying] = useState(false);
   const [cutPreview, setCutPreview] = useState(false);
@@ -143,7 +147,7 @@ export function VideoWorkspace({
   const setTrajectory = (mode: "debug" | "trail") => {
     const analysis = studio.project?.shuttle_analysis;
     if (!analysis?.current) {
-      studio.notify("请先分析整段视觉", true);
+      studio.notify(t("请先分析整段视觉"), true);
       return;
     }
     setTrajectoryMode((current) => current === mode ? "off" : mode);
@@ -159,7 +163,7 @@ export function VideoWorkspace({
     const analysis = project?.pose_analysis;
     if (!project) return;
     if (!analysis?.current || !analysis.url) {
-      studio.notify("请先分析整段视觉", true);
+      studio.notify(t("请先分析整段视觉"), true);
       return;
     }
     setPoseOverlay({ url: mediaUrl(analysis.url), start: 0, end: project.video.duration });
@@ -214,34 +218,34 @@ export function VideoWorkspace({
   return (
     <section className="viewer-column">
       {toolMode === "none" ? (
-        <div className="viewer-analysis-toolbar" aria-label="视频分析叠加">
+        <div data-overlay-label={t("叠加")} className="viewer-analysis-toolbar" aria-label={t("视频分析叠加")}>
           <Button
             size="sm"
             variant={poseOverlay ? "default" : "secondary"}
             disabled={!studio.project?.pose_analysis.current}
-            title={studio.project?.pose_analysis.current ? "显示整段视频的人物框、骨架和手腕轨迹" : "先在播放器外运行整段视觉分析"}
+            title={studio.project?.pose_analysis.current ? t("显示整段视频的人物框、骨架和手腕轨迹") : t("先在播放器外运行整段视觉分析")}
             onClick={() => void togglePoseOverlay()}
           >
-            <Activity />{poseOverlay ? "关闭姿态" : "YOLO 姿态"}
+            <Activity />{poseOverlay ? t("关闭姿态") : t("YOLO 姿态")}
           </Button>
           <Button
             size="sm"
             variant={trajectoryMode === "debug" ? "default" : "secondary"}
             disabled={!studio.project?.shuttle_analysis.current}
-            title={studio.project?.shuttle_analysis.current ? "显示轨迹调试标记" : "球路未生成"}
+            title={studio.project?.shuttle_analysis.current ? t("显示轨迹调试标记") : t("球路未生成")}
             onClick={() => setTrajectory("debug")}
           >
             {studio.analysisStatus.state === "running" && studio.analysisStatus.mode === "shuttle" ? <LoaderCircle className="animate-spin" /> : <ScanSearch />}
-            {studio.analysisStatus.state === "running" && studio.analysisStatus.mode === "shuttle" ? "分析球路…" : trajectoryMode === "debug" ? "关闭调试" : "调试标记"}
+            {studio.analysisStatus.state === "running" && studio.analysisStatus.mode === "shuttle" ? t("分析球路…") : trajectoryMode === "debug" ? t("关闭调试") : t("调试标记")}
           </Button>
           <Button
             size="sm"
             variant={trajectoryMode === "trail" ? "default" : "secondary"}
             disabled={!studio.project?.shuttle_analysis.current}
-            title={studio.project?.shuttle_analysis.current ? "只显示橙色球路拖尾" : "球路未生成"}
+            title={studio.project?.shuttle_analysis.current ? t("只显示橙色球路拖尾") : t("球路未生成")}
             onClick={() => setTrajectory("trail")}
           >
-            <ScanSearch />{trajectoryMode === "trail" ? "关闭拖尾" : "纯轨迹"}
+            <ScanSearch />{trajectoryMode === "trail" ? t("关闭拖尾") : t("纯轨迹")}
           </Button>
         </div>
       ) : null}
@@ -265,7 +269,7 @@ export function VideoWorkspace({
             src={poseOverlay.url}
             muted
             playsInline
-            aria-label="整段视频的 YOLO 人物姿态叠加"
+            aria-label={t("整段视频的 YOLO 人物姿态叠加")}
             onLoadedMetadata={() => syncPoseOverlay()}
           />
         ) : null}
@@ -273,7 +277,7 @@ export function VideoWorkspace({
           <canvas
             ref={calibration.canvasRef}
             className="tool-canvas calibration-canvas"
-            aria-label="球场区域校准画布"
+            aria-label={t("球场区域校准画布")}
             onPointerDown={calibration.pointerDown}
             onPointerMove={calibration.pointerMove}
             onPointerUp={calibration.pointerUp}
@@ -284,15 +288,15 @@ export function VideoWorkspace({
           <canvas
             ref={shuttle.canvasRef}
             className={`tool-canvas shuttle-canvas${toolMode === "shuttle" ? "" : " passive"}`}
-            aria-label={toolMode === "shuttle" ? "羽球轨迹标注画布" : "羽球运动轨迹叠加"}
+            aria-label={toolMode === "shuttle" ? t("羽球轨迹标注画布") : t("羽球运动轨迹叠加")}
             onPointerDown={toolMode === "shuttle" ? shuttle.add : undefined}
           />
         ) : null}
         {toolMode !== "none" ? <div className={`tool-mode-badge ${toolMode}`}>{toolMode === "calibration" ? "COURT CALIBRATION" : "SHUTTLE LABEL"}</div> : null}
         {studio.scoreReview.active ? (
-          <div className="cut-preview-status"><span>比分复核</span><em>R{String(studio.selectedIndex + 1).padStart(2, "0")}</em></div>
+          <div className="cut-preview-status"><span>{t("比分复核")}</span><em>R{String(studio.selectedIndex + 1).padStart(2, "0")}</em></div>
         ) : cutPreview ? (
-          <div className="cut-preview-status"><span>成片预览</span><strong>{formatTime(activeOutputTime)} / {formatTime(outputDuration(studio.segments))}</strong><em>R{String(cutIndex + 1).padStart(2, "0")}</em></div>
+          <div className="cut-preview-status"><span>{t("成片预览")}</span><strong>{formatTime(activeOutputTime)} / {formatTime(outputDuration(studio.segments))}</strong><em>R{String(cutIndex + 1).padStart(2, "0")}</em></div>
         ) : null}
       </div>
 
@@ -304,13 +308,13 @@ export function VideoWorkspace({
       ) : null}
 
       <div className="transport">
-        <Button size="icon" variant="outline" aria-label="上一个边界" onClick={() => jumpBoundary(-1)}><SkipBack /></Button>
-        <Button size="icon-lg" aria-label="播放或暂停" onClick={() => void togglePlayback()}>{playing ? <Pause /> : <Play />}</Button>
-        <Button size="icon" variant="outline" aria-label="下一个边界" onClick={() => jumpBoundary(1)}><SkipForward /></Button>
-        <Button variant={cutPreview ? "secondary" : "outline"} disabled={!studio.segments.length || studio.scoreReview.active} onClick={() => void toggleCutPreview()}><Scissors />{cutPreview ? "停止成片预览" : "成片预览"}</Button>
+        <Button size="icon" variant="outline" aria-label={t("上一个边界")} onClick={() => jumpBoundary(-1)}><SkipBack /></Button>
+        <Button size="icon-lg" aria-label={t("播放或暂停")} onClick={() => void togglePlayback()}>{playing ? <Pause /> : <Play />}</Button>
+        <Button size="icon" variant="outline" aria-label={t("下一个边界")} onClick={() => jumpBoundary(1)}><SkipForward /></Button>
+        <Button variant={cutPreview ? "secondary" : "outline"} disabled={!studio.segments.length || studio.scoreReview.active} onClick={() => void toggleCutPreview()}><Scissors />{cutPreview ? t("停止成片预览") : t("成片预览")}</Button>
         <span className="transport-time">{formatTime(currentTime)} / {formatTime(studio.project?.video.duration ?? 0)}</span>
         <div className="transport-spacer" />
-        <Label className="volume-label">音量<Slider aria-label="音量" min={0} max={1} step={0.05} value={[volume]} onValueChange={([value]) => {
+        <Label className="volume-label">{t("音量")}<Slider aria-label={t("音量")} min={0} max={1} step={0.05} value={[volume]} onValueChange={([value]) => {
           setVolume(value);
           if (studio.videoRef.current) studio.videoRef.current.volume = value;
         }} /></Label>
@@ -328,6 +332,7 @@ function CalibrationPanel({
   calibration: ReturnType<typeof useCalibrationEditor>;
   onClose: () => void;
 }) {
+  useTranslation();
   const [replaceOpen, setReplaceOpen] = useState(false);
   const [predictionOpen, setPredictionOpen] = useState(false);
   const payload = calibration.payload;
@@ -353,44 +358,43 @@ function CalibrationPanel({
     <section className="tool-panel calibration-panel">
       <div className="tool-panel-copy">
         <span className="eyebrow">COURT CALIBRATION</span>
-        <strong>{calibration.loading ? "正在载入…" : "点击添加顶点，拖动圆点微调"}</strong>
-        <span>必需区域 {complete} / {required.length}{calibration.dirty ? " · 未保存" : ""}</span>
-        <span>{homography?.available ? `单应性 95% 约 ±${Number(homography.p95_uncertainty_meters).toFixed(2)} m · ${homography.score_safe ? "可用于高置信事件" : "仅供参考"}` : `单应性 ${corners?.points?.length ?? 0} / 4 个有序角点`}</span>
+        <strong>{calibration.loading ? t("正在载入…") : t("点击添加顶点，拖动圆点微调")}</strong>
+        <span>{t("必需区域")}{complete} / {required.length}{calibration.dirty ? t(" · 未保存") : ""}</span>
+        <span>{homography?.available ? t("单应性 95% 约 ±{{value1}} m · {{value2}}", { value1: Number(homography.p95_uncertainty_meters).toFixed(2), value2: homography.score_safe ? t("可用于高置信事件") : t("仅供参考") }) : t("单应性 {{value1}} / 4 个有序角点", { value1: corners?.points?.length ?? 0 })}</span>
       </div>
-      <Label>当前区域
-        <Select value={calibration.selectedId} onValueChange={calibration.setSelectedId}>
-          <SelectTrigger aria-label="当前校准区域"><SelectValue placeholder="选择一个校准区域" /></SelectTrigger>
+      <Label>{t("当前区域")}<Select value={calibration.selectedId} onValueChange={calibration.setSelectedId}>
+          <SelectTrigger aria-label={t("当前校准区域")}><SelectValue placeholder={t("选择一个校准区域")} /></SelectTrigger>
           <SelectContent>
           {(payload?.regions ?? []).map((region) => {
             const minimum = region.minimum_points ?? 3;
             const count = region.points?.length ?? 0;
-            return <SelectItem key={region.id} value={region.id}>{region.label} · {count >= minimum ? `✓ ${count} 点` : `${count} 点`}</SelectItem>;
+            return <SelectItem key={region.id} value={region.id}>{translateMessage(region.label)} · {count >= minimum ? t("✓ {{value1}} 点", { value1: count }) : t("{{value1}} 点", { value1: count })}</SelectItem>;
           })}
           </SelectContent>
         </Select>
       </Label>
       <div className="tool-panel-actions">
-        <Button variant="secondary" onClick={() => { if (hasGeneratedHelpers) setReplaceOpen(true); else calibration.autoGenerate(false); }}>从有效场地生成辅助区</Button>
-        <Button variant="outline" onClick={() => calibration.addRegion("background_court_polygons")}>＋ 背景排除区</Button>
-        <Button variant="outline" onClick={() => calibration.addRegion("static_false_positive_polygons")}>＋ 静态误检区</Button>
-        <Button variant="outline" disabled={!calibration.selected?.points?.length} onClick={calibration.undoPoint}><Undo2 />撤销顶点</Button>
-        <Button variant="destructive" disabled={!calibration.selected?.points?.length} onClick={calibration.clearRegion}>清空当前</Button>
-        <Button variant="destructive" disabled={!calibration.selected?.type} onClick={calibration.deleteRegion}>删除排除区</Button>
-        <Button disabled={!calibration.dirty || calibration.saving} onClick={() => void calibration.save()}><Save />{calibration.saving ? "正在保存…" : "保存校准"}</Button>
-        <Button variant="secondary" disabled={calibration.dirty || calibration.saving || analysisRunning || !studio.project?.automatic_analysis.configured} onClick={() => setPredictionOpen(true)}><ScanSearch />重新跑剪片预测</Button>
-        <Button variant="outline" disabled={calibration.dirty || calibration.saving || analysisRunning || !visualConfigured} onClick={() => void studio.launchVisualAnalysis(false)}><Activity />按新校准重跑整段视觉</Button>
-        <Button variant="ghost" onClick={onClose}><X />退出</Button>
+        <Button variant="secondary" onClick={() => { if (hasGeneratedHelpers) setReplaceOpen(true); else calibration.autoGenerate(false); }}>{t("从有效场地生成辅助区")}</Button>
+        <Button variant="outline" onClick={() => calibration.addRegion("background_court_polygons")}>{t("＋ 背景排除区")}</Button>
+        <Button variant="outline" onClick={() => calibration.addRegion("static_false_positive_polygons")}>{t("＋ 静态误检区")}</Button>
+        <Button variant="outline" disabled={!calibration.selected?.points?.length} onClick={calibration.undoPoint}><Undo2 />{t("撤销顶点")}</Button>
+        <Button variant="destructive" disabled={!calibration.selected?.points?.length} onClick={calibration.clearRegion}>{t("清空当前")}</Button>
+        <Button variant="destructive" disabled={!calibration.selected?.type} onClick={calibration.deleteRegion}>{t("删除排除区")}</Button>
+        <Button disabled={!calibration.dirty || calibration.saving} onClick={() => void calibration.save()}><Save />{calibration.saving ? t("正在保存…") : t("保存校准")}</Button>
+        <Button variant="secondary" disabled={calibration.dirty || calibration.saving || analysisRunning || !studio.project?.automatic_analysis.configured} onClick={() => setPredictionOpen(true)}><ScanSearch />{t("重新跑剪片预测")}</Button>
+        <Button variant="outline" disabled={calibration.dirty || calibration.saving || analysisRunning || !visualConfigured} onClick={() => void studio.launchVisualAnalysis(false)}><Activity />{t("按新校准重跑整段视觉")}</Button>
+        <Button variant="ghost" onClick={onClose}><X />{t("退出")}</Button>
       </div>
       <AlertDialog open={replaceOpen} onOpenChange={setReplaceOpen}>
         <AlertDialogContent>
-          <AlertDialogHeader><AlertDialogTitle>重新生成所有辅助区？</AlertDialogTitle><AlertDialogDescription>当前辅助区草稿会被覆盖。</AlertDialogDescription></AlertDialogHeader>
-          <AlertDialogFooter><AlertDialogCancel>保留当前辅助区</AlertDialogCancel><AlertDialogAction onClick={() => { calibration.autoGenerate(true); setReplaceOpen(false); }}>覆盖并生成</AlertDialogAction></AlertDialogFooter>
+          <AlertDialogHeader><AlertDialogTitle>{t("重新生成所有辅助区？")}</AlertDialogTitle><AlertDialogDescription>{t("当前辅助区草稿会被覆盖。")}</AlertDialogDescription></AlertDialogHeader>
+          <AlertDialogFooter><AlertDialogCancel>{t("保留当前辅助区")}</AlertDialogCancel><AlertDialogAction onClick={() => { calibration.autoGenerate(true); setReplaceOpen(false); }}>{t("覆盖并生成")}</AlertDialogAction></AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
       <AlertDialog open={predictionOpen} onOpenChange={setPredictionOpen}>
         <AlertDialogContent>
-          <AlertDialogHeader><AlertDialogTitle>按新校准重新跑剪片预测？</AlertDialogTitle><AlertDialogDescription>将备份并替换当前时间轴。</AlertDialogDescription></AlertDialogHeader>
-          <AlertDialogFooter><AlertDialogCancel>取消</AlertDialogCancel><AlertDialogAction onClick={rerunPrediction}>备份并重新预测</AlertDialogAction></AlertDialogFooter>
+          <AlertDialogHeader><AlertDialogTitle>{t("按新校准重新跑剪片预测？")}</AlertDialogTitle><AlertDialogDescription>{t("将备份并替换当前时间轴。")}</AlertDialogDescription></AlertDialogHeader>
+          <AlertDialogFooter><AlertDialogCancel>{t("取消")}</AlertDialogCancel><AlertDialogAction onClick={rerunPrediction}>{t("备份并重新预测")}</AlertDialogAction></AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
     </section>
@@ -406,6 +410,7 @@ function ShuttlePanel({
   shuttle: ReturnType<typeof useShuttleAnnotations>;
   onClose: () => void;
 }) {
+  useTranslation();
   const analysis = studio.project?.shuttle_analysis;
   const running = studio.analysisStatus.state === "running" && studio.analysisStatus.mode === "shuttle";
   const saveAndRebuild = async () => {
@@ -415,16 +420,16 @@ function ShuttlePanel({
   return (
     <section className="tool-panel shuttle-panel">
       <div className="tool-panel-copy">
-        <span className="eyebrow">羽球轨迹</span>
-        <strong>{shuttle.loading ? "正在载入…" : analysis?.stale ? "需要重新分析" : analysis?.generated ? "轨迹已生成" : "尚未生成"}</strong>
-        <span>{running ? "分析中" : shuttle.dirty ? "未保存" : "已保存"}</span>
+        <span className="eyebrow">{t("羽球轨迹")}</span>
+        <strong>{shuttle.loading ? t("正在载入…") : analysis?.stale ? t("需要重新分析") : analysis?.generated ? t("轨迹已生成") : t("尚未生成")}</strong>
+        <span>{running ? t("分析中") : shuttle.dirty ? t("未保存") : t("已保存")}</span>
       </div>
-      <Label>点击动作<Select value={shuttle.mode} onValueChange={(value) => shuttle.setMode(value as "add" | "reject")}><SelectTrigger aria-label="羽球标注动作"><SelectValue /></SelectTrigger><SelectContent><SelectItem value="add">补一个羽球点</SelectItem><SelectItem value="reject">排除附近误检</SelectItem></SelectContent></Select></Label>
+      <Label>{t("点击动作")}<Select value={shuttle.mode} onValueChange={(value) => shuttle.setMode(value as "add" | "reject")}><SelectTrigger aria-label={t("羽球标注动作")}><SelectValue /></SelectTrigger><SelectContent><SelectItem value="add">{t("补一个羽球点")}</SelectItem><SelectItem value="reject">{t("排除附近误检")}</SelectItem></SelectContent></Select></Label>
       <div className="tool-panel-actions">
-        <Button variant="secondary" disabled={!analysis?.configured || studio.analysisStatus.state === "running"} onClick={() => void studio.launchShuttleAnalysis(Boolean(analysis?.generated))}><ScanSearch />{running ? "正在分析…" : analysis?.stale ? "按新校准重新分析" : analysis?.generated ? "重新分析当前球路" : "生成当前视频球路"}</Button>
-        <Button variant="outline" disabled={!shuttle.payload?.annotations.length} onClick={shuttle.undo}><Undo2 />撤销标注</Button>
-        <Button disabled={!shuttle.dirty || shuttle.saving || studio.analysisStatus.state === "running"} onClick={() => void saveAndRebuild()}><Save />{shuttle.saving ? "正在保存…" : analysis?.configured ? "保存并重建球路" : "保存标注"}</Button>
-        <Button variant="ghost" onClick={onClose}><X />退出</Button>
+        <Button variant="secondary" disabled={!analysis?.configured || studio.analysisStatus.state === "running"} onClick={() => void studio.launchShuttleAnalysis(Boolean(analysis?.generated))}><ScanSearch />{running ? t("正在分析…") : analysis?.stale ? t("按新校准重新分析") : analysis?.generated ? t("重新分析当前球路") : t("生成当前视频球路")}</Button>
+        <Button variant="outline" disabled={!shuttle.payload?.annotations.length} onClick={shuttle.undo}><Undo2 />{t("撤销标注")}</Button>
+        <Button disabled={!shuttle.dirty || shuttle.saving || studio.analysisStatus.state === "running"} onClick={() => void saveAndRebuild()}><Save />{shuttle.saving ? t("正在保存…") : analysis?.configured ? t("保存并重建球路") : t("保存标注")}</Button>
+        <Button variant="ghost" onClick={onClose}><X />{t("退出")}</Button>
       </div>
     </section>
   );

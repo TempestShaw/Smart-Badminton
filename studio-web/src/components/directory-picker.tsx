@@ -1,5 +1,8 @@
 "use client";
 
+import { useTranslation } from "react-i18next";
+import { t, translateMessage } from "@/lib/i18n";
+
 import { useCallback, useEffect, useState } from "react";
 import { ChevronLeft, Folder, FolderOpen, HardDrive, Home, LoaderCircle, RefreshCw } from "lucide-react";
 
@@ -33,6 +36,7 @@ export function DirectoryPicker({
   description: string;
   onSelect: (path: string) => boolean | void | Promise<boolean | void>;
 }) {
+  useTranslation();
   const [browser, setBrowser] = useState<DirectoryPayload | null>(null);
   const [path, setPath] = useState(initialPath);
   const [loading, setLoading] = useState(false);
@@ -75,7 +79,7 @@ export function DirectoryPicker({
 
         <div className="flex gap-2">
           <Input
-            aria-label="文件夹路径"
+            aria-label={t("文件夹路径")}
             value={path}
             spellCheck={false}
             onChange={(event) => setPath(event.target.value)}
@@ -85,17 +89,14 @@ export function DirectoryPicker({
           />
           <Button variant="outline" disabled={loading} onClick={() => void load(path)}>
             {loading ? <LoaderCircle className="animate-spin" /> : <RefreshCw />}
-            打开
-          </Button>
+            {t("打开")}</Button>
         </div>
 
         <div className="flex flex-wrap items-center gap-2">
           <Button size="sm" variant="outline" disabled={!browser?.parent || loading} onClick={() => void load(browser?.parent ?? undefined)}>
-            <ChevronLeft />上一级
-          </Button>
+            <ChevronLeft />{t("上一级")}</Button>
           <Button size="sm" variant="outline" disabled={!browser?.home || loading} onClick={() => void load(browser?.home)}>
-            <Home />主目录
-          </Button>
+            <Home />{t("主目录")}</Button>
           {(browser?.roots ?? []).map((root) => (
             <Button key={root.path} size="sm" variant="ghost" disabled={loading} onClick={() => void load(root.path)}>
               <HardDrive />{root.name}
@@ -104,12 +105,12 @@ export function DirectoryPicker({
           {browser ? <Badge variant="secondary" className="ml-auto max-w-full truncate font-mono">{browser.path}</Badge> : null}
         </div>
 
-        {error ? <div role="alert" className="rounded-lg border border-destructive/40 bg-destructive/10 p-3 text-sm text-destructive">{error}</div> : null}
+        {error ? <div role="alert" className="rounded-lg border border-destructive/40 bg-destructive/10 p-3 text-sm text-destructive">{translateMessage(error)}</div> : null}
 
         <ScrollArea className="h-80 rounded-lg border bg-background/40">
           <div className="grid gap-1 p-2">
             {!loading && browser?.directories.length === 0 ? (
-              <p className="p-6 text-center text-sm text-muted-foreground">这个文件夹没有子文件夹；仍然可以选择当前文件夹。</p>
+              <p className="p-6 text-center text-sm text-muted-foreground">{t("这个文件夹没有子文件夹；仍然可以选择当前文件夹。")}</p>
             ) : null}
             {(browser?.directories ?? []).map((directory) => (
               <Button
@@ -126,10 +127,9 @@ export function DirectoryPicker({
         </ScrollArea>
 
         <DialogFooter>
-          <Button variant="outline" onClick={() => onOpenChange(false)}>取消</Button>
+          <Button variant="outline" onClick={() => onOpenChange(false)}>{t("取消")}</Button>
           <Button disabled={!browser || loading} onClick={() => void choose()}>
-            <FolderOpen />选择当前文件夹
-          </Button>
+            <FolderOpen />{t("选择当前文件夹")}</Button>
         </DialogFooter>
       </DialogContent>
     </Dialog>

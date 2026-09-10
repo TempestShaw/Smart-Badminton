@@ -1,3 +1,4 @@
+import { t } from "./i18n";
 import type { Segment } from "@/types/studio";
 
 function ffmpegBaseUrl(): string {
@@ -27,17 +28,17 @@ export async function exportVideoInBrowser(
   onProgress: (value: number, message: string) => void,
   signal: AbortSignal,
 ): Promise<void> {
-  if (!segments.length) throw new Error("时间轴没有片段");
-  if (file.size > 1.5 * 1024 ** 3) throw new Error("浏览器版暂不支持超过 1.5 GB 的输出，请使用精准版");
+  if (!segments.length) throw new Error(t("时间轴没有片段"));
+  if (file.size > 1.5 * 1024 ** 3) throw new Error(t("浏览器版暂不支持超过 1.5 GB 的输出，请使用精准版"));
   const [{ FFmpeg }, { fetchFile, toBlobURL }] = await Promise.all([import("@ffmpeg/ffmpeg"), import("@ffmpeg/util")]);
   const ffmpeg = new FFmpeg();
   const cancelled = () => ffmpeg.terminate();
   signal.addEventListener("abort", cancelled, { once: true });
-  ffmpeg.on("progress", ({ progress }) => onProgress(Math.max(0, Math.min(1, progress)), `输出成片 ${Math.round(progress * 100)}%`));
+  ffmpeg.on("progress", ({ progress }) => onProgress(Math.max(0, Math.min(1, progress)), t("输出成片 {{value1}}%", { value1: Math.round(progress * 100) })));
   const basePath = ffmpegBaseUrl();
   const localBase = new URL(`${basePath}/`, window.location.origin).href.replace(/\/$/, "");
   try {
-    onProgress(0, "载入本地编码器");
+    onProgress(0, t("载入本地编码器"));
     const embedded = basePath.startsWith("/static");
     const coreURL = embedded
       ? await toBlobURL("https://cdn.jsdelivr.net/npm/@ffmpeg/core@0.12.10/dist/esm/ffmpeg-core.js", "text/javascript")
@@ -85,7 +86,7 @@ export async function exportVideoInBrowser(
     anchor.download = `${file.name.replace(/\.[^.]+$/, "")}-quick-cut.mp4`;
     anchor.click();
     URL.revokeObjectURL(url);
-    onProgress(1, "输出完成");
+    onProgress(1, t("输出完成"));
   } finally {
     signal.removeEventListener("abort", cancelled);
     ffmpeg.terminate();

@@ -1,5 +1,8 @@
 "use client";
 
+import { useTranslation } from "react-i18next";
+import { t } from "@/lib/i18n";
+
 import { useCallback, useEffect, useState } from "react";
 
 import { AppHeader } from "@/components/app-header";
@@ -13,6 +16,7 @@ import { WorkflowPanel, type ToolMode } from "@/components/workflow-panel";
 import { useStudioController } from "@/hooks/use-studio-controller";
 
 export function StudioApp({ onSwitchEngine }: { onSwitchEngine?: () => void }) {
+  useTranslation();
   const studio = useStudioController();
   const [toolMode, setToolMode] = useState<ToolMode>("none");
   const [toolDirty, setToolDirty] = useState(false);
@@ -79,11 +83,11 @@ export function StudioApp({ onSwitchEngine }: { onSwitchEngine?: () => void }) {
       </main>
       <AlertDialog open={pendingToolMode !== null} onOpenChange={(open) => { if (!open) setPendingToolMode(null); }}>
         <AlertDialogContent>
-          <AlertDialogHeader><AlertDialogTitle>放弃工具中的未保存修改？</AlertDialogTitle><AlertDialogDescription>退出后，这次尚未保存的场地或羽球标注修改会丢失；已保存的数据不受影响。</AlertDialogDescription></AlertDialogHeader>
-          <AlertDialogFooter><AlertDialogCancel>继续编辑</AlertDialogCancel><AlertDialogAction onClick={discardToolChanges}>放弃并退出</AlertDialogAction></AlertDialogFooter>
+          <AlertDialogHeader><AlertDialogTitle>{t("放弃工具中的未保存修改？")}</AlertDialogTitle><AlertDialogDescription>{t("退出后，这次尚未保存的场地或羽球标注修改会丢失；已保存的数据不受影响。")}</AlertDialogDescription></AlertDialogHeader>
+          <AlertDialogFooter><AlertDialogCancel>{t("继续编辑")}</AlertDialogCancel><AlertDialogAction onClick={discardToolChanges}>{t("放弃并退出")}</AlertDialogAction></AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
-      {studio.loading ? <div className="loading-overlay"><span className="loader" /><strong>正在载入本地项目…</strong></div> : null}
+      {studio.loading ? <div className="loading-overlay"><span className="loader" /><strong>{t("正在载入本地项目…")}</strong></div> : null}
     </div>
   );
 }

@@ -1,5 +1,8 @@
 "use client";
 
+import { useTranslation } from "react-i18next";
+import { t, translateMessage } from "@/lib/i18n";
+
 import type { PointerEvent as ReactPointerEvent, RefObject } from "react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
@@ -26,6 +29,7 @@ function clonePayload(payload: CalibrationPayload): CalibrationPayload {
 }
 
 export function useCalibrationEditor({ active, project, videoRef, notify, onDirtyChange, onSaved }: Options) {
+  const { i18n } = useTranslation();
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const dragRef = useRef<{ pointIndex: number; pointerId: number } | null>(null);
   const [payload, setPayload] = useState<CalibrationPayload | null>(null);
@@ -144,9 +148,9 @@ export function useCalibrationEditor({ active, project, videoRef, notify, onDirt
       }
       context.fillStyle = region.color;
       context.font = `${isSelected ? 700 : 600} 10px ui-monospace, monospace`;
-      context.fillText(region.label, points[0].x + 8, points[0].y + 16);
+      context.fillText(translateMessage(region.label), points[0].x + 8, points[0].y + 16);
     }
-  }, [active, payload, screenPoint, selectedId]);
+  }, [active, i18n.resolvedLanguage, payload, screenPoint, selectedId]);
 
   useEffect(() => {
     draw();
@@ -177,7 +181,7 @@ export function useCalibrationEditor({ active, project, videoRef, notify, onDirt
     });
     if (nearest < 0) {
       const maximum = selected.maximum_points ?? 64;
-      if (points.length >= maximum) return notify(`${selected.label} 最多只能有 ${maximum} 个点`, true);
+      if (points.length >= maximum) return notify(t("{{value1}} 最多只能有 {{value2}} 个点", { value1: selected.label, value2: maximum }), true);
       nearest = points.length;
       mutateRegions((regions) => regions.map((region) => region.id === selected.id
         ? { ...region, points: [...(region.points ?? []), point.map((value) => Number(value.toFixed(6))) as Point] }
@@ -233,7 +237,7 @@ export function useCalibrationEditor({ active, project, videoRef, notify, onDirt
     const activeRegion = payload.regions.find((region) => region.id === "active_court_polygon");
     const points = activeRegion?.points ?? [];
     if (points.length < 3) {
-      notify("请先在红色有效比赛场地里圈至少 3 个点", true);
+      notify(t("请先在红色有效比赛场地里圈至少 3 个点"), true);
       return false;
     }
     const targetIds = ["near_player_zone", "far_player_zone", "net_band", "shuttle_airspace_polygon", "shuttle_perspective_axis"];
@@ -256,7 +260,7 @@ export function useCalibrationEditor({ active, project, videoRef, notify, onDirt
       ? { ...region, points: generated[region.id].map(([x, y]) => [Math.max(0, Math.min(1, x)), Math.max(0, Math.min(1, y))]) }
       : region));
     setSelectedId("near_player_zone");
-    notify("辅助区已生成");
+    notify(t("辅助区已生成"));
     return true;
   };
 
@@ -275,7 +279,7 @@ export function useCalibrationEditor({ active, project, videoRef, notify, onDirt
       setPayload(clonePayload(result));
       markDirty(false);
       onSaved(result);
-      notify("球场校准已保存");
+      notify(t("球场校准已保存"));
     } catch (error) {
       notify((error as Error).message, true);
     } finally {

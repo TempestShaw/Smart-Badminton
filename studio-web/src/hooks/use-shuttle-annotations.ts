@@ -1,4 +1,5 @@
 "use client";
+import { t } from "@/lib/i18n";
 
 import type { PointerEvent as ReactPointerEvent, RefObject } from "react";
 import { useCallback, useEffect, useRef, useState } from "react";
@@ -264,7 +265,7 @@ export function useShuttleAnnotations({ visible, editable, displayMode = "debug"
       });
       setPayload(result);
       markDirty(false);
-      notify("羽球标注已保存");
+      notify(t("羽球标注已保存"));
       return true;
     } catch (error) {
       notify((error as Error).message, true);

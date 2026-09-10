@@ -1180,3 +1180,14 @@ def test_hybrid_routes_yolo_and_tracknet_package_paths_separately(tmp_path: Path
 
 def _public_start(path: Path) -> float:
     return float(path.read_text(encoding="utf-8").splitlines()[1].split(",")[1])
+
+
+def test_studio_tutorial_supports_english_and_chinese(tmp_path: Path) -> None:
+    state = StudioState(video=tmp_path / "video.mp4", rallies=tmp_path / "rallies.csv", output=tmp_path / "edited.mp4")
+    client = TestClient(studio.create_studio_app(state))
+    english = client.get("/api/tutorial?language=en")
+    chinese = client.get("/api/tutorial?language=zh")
+    assert english.status_code == chinese.status_code == 200
+    assert "# Smart Badminton Studio manual" in english.json()["markdown"]
+    assert "完整使用教程" in chinese.json()["markdown"]
+    assert client.get("/api/tutorial").json() == chinese.json()

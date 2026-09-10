@@ -1,5 +1,8 @@
 "use client";
 
+import { useTranslation } from "react-i18next";
+import { t, translateMessage } from "@/lib/i18n";
+
 import type { PointerEvent as ReactPointerEvent } from "react";
 import { memo, useCallback, useEffect, useRef, useState } from "react";
 import { Maximize2, Plus } from "lucide-react";
@@ -65,7 +68,8 @@ const RulerTicks = memo(function RulerTicks({ duration, major }: { duration: num
 });
 
 const EvidenceItems = memo(function EvidenceItems({ evidence, duration }: { evidence: EvidencePayload | undefined; duration: number }) {
-  if (!evidence?.available) return <span className="evidence-empty">{evidence?.reason || "运行自动分析后显示逐帧证据"}</span>;
+  useTranslation();
+  if (!evidence?.available) return <span className="evidence-empty">{translateMessage(evidence?.reason) || t("运行自动分析后显示逐帧证据")}</span>;
   return (
     <>
       {Object.entries(evidence.signals ?? {}).flatMap(([name, spans]) => name === "landing_candidate" ? [] : spans.map(([start, end], index) => (
@@ -73,26 +77,26 @@ const EvidenceItems = memo(function EvidenceItems({ evidence, duration }: { evid
           key={`${name}-${index}`}
           className={`evidence-span ${name.replaceAll("_", "-")}`}
           style={{ left: timelinePercent(start, duration), width: timelinePercent(end - start, duration) }}
-          title={`${evidenceLabels[name] || name} ${formatTime(start)}–${formatTime(end)}`}
+          title={`${t(evidenceLabels[name] || name)} ${formatTime(start)}–${formatTime(end)}`}
         />
       )))}
-      {(evidence.serves ?? []).map((event, index) => <span key={`serve-${index}`} className={`evidence-marker serve-${event.server}`} style={{ left: timelinePercent(event.time, duration) }} title={`${event.server === "near" ? "近场" : "远场"}正式发球 ${formatTime(event.time)}`} />)}
-      {(evidence.contacts ?? []).map((event, index) => <span key={`contact-${index}`} className="evidence-marker contact" style={{ left: timelinePercent(event.time, duration) }} title={`严格球拍接触 ${formatTime(event.time)} · ${Math.round(event.confidence * 100)}%`} />)}
-      {(evidence.terminal_events ?? []).map((event, index) => <span key={`terminal-${index}`} className="evidence-marker terminal" style={{ left: timelinePercent(event.time, duration) }} title={`终局 ${event.event} ${formatTime(event.time)} · ${Math.round(event.confidence * 100)}%`} />)}
+      {(evidence.serves ?? []).map((event, index) => <span key={`serve-${index}`} className={`evidence-marker serve-${event.server}`} style={{ left: timelinePercent(event.time, duration) }} title={t("{{value1}}正式发球 {{value2}}", { value1: event.server === "near" ? t("近场") : t("远场"), value2: formatTime(event.time) })} />)}
+      {(evidence.contacts ?? []).map((event, index) => <span key={`contact-${index}`} className="evidence-marker contact" style={{ left: timelinePercent(event.time, duration) }} title={t("严格球拍接触 {{value1}} · {{value2}}%", { value1: formatTime(event.time), value2: Math.round(event.confidence * 100) })} />)}
+      {(evidence.terminal_events ?? []).map((event, index) => <span key={`terminal-${index}`} className="evidence-marker terminal" style={{ left: timelinePercent(event.time, duration) }} title={t("终局 {{value1}} {{value2}} · {{value3}}%", { value1: event.event, value2: formatTime(event.time), value3: Math.round(event.confidence * 100) })} />)}
     </>
   );
 });
 
 const TimelineZoomControl = memo(function TimelineZoomControl({ value, onPreview, onCommit }: TimelineZoomControlProps) {
+  useTranslation();
   const [displayValue, setDisplayValue] = useState(value);
 
   useEffect(() => setDisplayValue(value), [value]);
 
   return (
     <label className="zoom-control">
-      缩放
-      <Slider
-        aria-label="时间轴缩放"
+      {t("缩放")}<Slider
+        aria-label={t("时间轴缩放")}
         min={1.5}
         max={120}
         step={0.5}
@@ -108,6 +112,7 @@ const TimelineZoomControl = memo(function TimelineZoomControl({ value, onPreview
 });
 
 export function TimelineEditor({ studio }: { studio: StudioController }) {
+  useTranslation();
   const scrollRef = useRef<HTMLDivElement>(null);
   const playheadRef = useRef<HTMLDivElement>(null);
   const dragRef = useRef<BoundaryDrag | null>(null);
@@ -303,13 +308,13 @@ export function TimelineEditor({ studio }: { studio: StudioController }) {
     <section className="timeline-section" data-guide-action="timeline" data-guide-surface tabIndex={-1}>
       <div className="timeline-toolbar">
         <div className="timeline-summary">
-          <span className="eyebrow">SOURCE TIMELINE</span>
-          <strong>{studio.segments.length} 个片段</strong>
-          <span className="muted">成片约 {formatTime(outputDuration(studio.segments), false)}</span>
+          <span className="eyebrow">{t("SOURCE TIMELINE")}</span>
+          <strong>{t("{{count}} 个片段", { count: studio.segments.length })}</strong>
+          <span className="muted">{t("成片约")}{formatTime(outputDuration(studio.segments), false)}</span>
         </div>
         <div className="timeline-tools">
-          <Button size="sm" variant="outline" onClick={studio.addSegment}><Plus />新增片段</Button>
-          <Button size="sm" variant="outline" onClick={() => commitZoom(Math.max(1.5, (containerWidth - GUTTER) / Math.max(1, duration)))}><Maximize2 />适应窗口</Button>
+          <Button size="sm" variant="outline" onClick={studio.addSegment}><Plus />{t("新增片段")}</Button>
+          <Button size="sm" variant="outline" onClick={() => commitZoom(Math.max(1.5, (containerWidth - GUTTER) / Math.max(1, duration)))}><Maximize2 />{t("适应窗口")}</Button>
           <TimelineZoomControl value={pixelsPerSecond} onPreview={scheduleZoom} onCommit={commitZoom} />
         </div>
       </div>
@@ -318,7 +323,7 @@ export function TimelineEditor({ studio }: { studio: StudioController }) {
           <div className="ruler" onPointerDown={scrub}>
             <RulerTicks duration={duration} major={rulerMajor} />
           </div>
-          <div className="track-label">保留片段</div>
+          <div className="track-label">{t("保留片段")}</div>
           <div className="segment-track" onPointerDown={scrub}>
             {studio.segments.map((segment, index) => (
               <div
@@ -330,13 +335,13 @@ export function TimelineEditor({ studio }: { studio: StudioController }) {
                   studio.selectSegment(index, true);
                 }}
               >
-                <button className="trim-handle start" type="button" aria-label={`调整 R${index + 1} 开始`} onPointerDown={(event) => beginBoundaryDrag(event, index, "start")} />
+                <button className="trim-handle start" type="button" aria-label={t("调整 R{{value1}} 开始", { value1: index + 1 })} onPointerDown={(event) => beginBoundaryDrag(event, index, "start")} />
                 <span className="segment-label">R{String(index + 1).padStart(2, "0")} · {(segment.end - segment.start).toFixed(1)}s</span>
-                <button className="trim-handle end" type="button" aria-label={`调整 R${index + 1} 结束`} onPointerDown={(event) => beginBoundaryDrag(event, index, "end")} />
+                <button className="trim-handle end" type="button" aria-label={t("调整 R{{value1}} 结束", { value1: index + 1 })} onPointerDown={(event) => beginBoundaryDrag(event, index, "end")} />
               </div>
             ))}
           </div>
-          <div className="evidence-label"><span>模型</span><span>球路</span><span>站位</span><span>事件</span></div>
+          <div className="evidence-label"><span>{t("模型")}</span><span>{t("球路")}</span><span>{t("站位")}</span><span>{t("事件")}</span></div>
           <div className="evidence-track" onPointerDown={scrub}>
             <EvidenceItems evidence={evidence} duration={duration} />
           </div>
@@ -344,8 +349,8 @@ export function TimelineEditor({ studio }: { studio: StudioController }) {
         </div>
       </div>
       <div className="timeline-legend">
-        <span><i className="legend-kept" />最终保留</span><span><i className="legend-model" />模型/动作</span><span><i className="legend-flight" />球路/遮挡</span><span><i className="legend-ready" />双方预备</span>
-        <span className="timeline-hint">拖动空白处精确定位；拖动片段边缘调整边界</span>
+        <span><i className="legend-kept" />{t("最终保留")}</span><span><i className="legend-model" />{t("模型/动作")}</span><span><i className="legend-flight" />{t("球路/遮挡")}</span><span><i className="legend-ready" />{t("双方预备")}</span>
+        <span className="timeline-hint">{t("拖动空白处精确定位；拖动片段边缘调整边界")}</span>
       </div>
     </section>
   );

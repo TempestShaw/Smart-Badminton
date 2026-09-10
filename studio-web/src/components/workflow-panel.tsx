@@ -1,5 +1,8 @@
 "use client";
 
+import { useTranslation } from "react-i18next";
+import { t, translateMessage } from "@/lib/i18n";
+
 import { useEffect, useState } from "react";
 import { Activity, Bot, Boxes, CircleHelp, Crosshair, ScanSearch, Sparkles } from "lucide-react";
 
@@ -24,6 +27,7 @@ export function WorkflowPanel({
   toolMode: ToolMode;
   onToolMode: (mode: ToolMode) => void;
 }) {
+  useTranslation();
   const settings = studio.project?.automatic_analysis.settings;
   const [preroll, setPreroll] = useState(0.35);
   const [postroll, setPostroll] = useState(0.55);
@@ -44,7 +48,7 @@ export function WorkflowPanel({
   const scoreLabelRunning = running && studio.analysisStatus.mode === "score-labels";
   const requestLaunch = (batch: boolean) => {
     if (![preroll, postroll].every((value) => Number.isFinite(value) && value >= 0 && value <= 2)) {
-      return studio.notify("前留和后留必须在 0–2 秒之间", true);
+      return studio.notify(t("前留和后留必须在 0–2 秒之间"), true);
     }
     setPendingBatch(batch);
   };
@@ -55,27 +59,27 @@ export function WorkflowPanel({
     void studio.launchAnalysis(batch, { preroll, postroll, suppress_handoffs: suppressHandoffs });
   };
   return (
-    <section className="workflow-panel" aria-label="剪片工作流" data-guide-surface>
+    <section className="workflow-panel" aria-label={t("剪片工作流")} data-guide-surface>
       <Accordion type="single" defaultValue="auto" collapsible className="workflow-accordion">
         <AccordionItem value="auto" className="workflow-section">
           <AccordionTrigger className="workflow-trigger" data-guide-action="auto-section">
-            <span><small>01</small><Bot /><strong>自动剪片</strong></span>
+            <span><small>01</small><Bot /><strong>{t("自动剪片")}</strong></span>
             <Badge variant={automatic?.configured ? "default" : ffmpegReady ? "outline" : "destructive"}>
-              {automatic?.configured ? "已配置" : ffmpegReady ? "待校准" : "FFmpeg 缺失"}
+              {automatic?.configured ? t("已配置") : ffmpegReady ? t("待校准") : t("FFmpeg 缺失")}
             </Badge>
           </AccordionTrigger>
           <AccordionContent className="workflow-content auto-cut-content">
-            {automatic?.configuration_issue ? <p className="configuration-issue">{automatic.configuration_issue}</p> : null}
+            {automatic?.configuration_issue ? <p className="configuration-issue">{translateMessage(automatic.configuration_issue)}</p> : null}
             <div className="compact-options">
-              <Label>前留<Input type="number" min={0} max={2} step={0.05} value={preroll} onChange={(event) => setPreroll(Number(event.target.value))} />秒</Label>
-              <Label>后留<Input type="number" min={0} max={2} step={0.05} value={postroll} onChange={(event) => setPostroll(Number(event.target.value))} />秒</Label>
-              <Label className="check-option"><Checkbox checked={suppressHandoffs} onCheckedChange={(checked) => setSuppressHandoffs(checked === true)} />过滤送球</Label>
+              <Label>{t("前留")}<Input type="number" min={0} max={2} step={0.05} value={preroll} onChange={(event) => setPreroll(Number(event.target.value))} />{t("秒")}</Label>
+              <Label>{t("后留")}<Input type="number" min={0} max={2} step={0.05} value={postroll} onChange={(event) => setPostroll(Number(event.target.value))} />{t("秒")}</Label>
+              <Label className="check-option"><Checkbox checked={suppressHandoffs} onCheckedChange={(checked) => setSuppressHandoffs(checked === true)} />{t("过滤送球")}</Label>
             </div>
             <div className="workflow-actions">
-              <Button data-guide-action="analyze" disabled={!automatic?.configured || running} onClick={() => requestLaunch(false)}><Sparkles />自动分析当前视频</Button>
-              <Button variant="outline" disabled={!automatic?.configured || running} onClick={() => requestLaunch(true)}><Boxes />批量分析新比赛</Button>
+              <Button data-guide-action="analyze" disabled={!automatic?.configured || running} onClick={() => requestLaunch(false)}><Sparkles />{t("自动分析当前视频")}</Button>
+              <Button variant="outline" disabled={!automatic?.configured || running} onClick={() => requestLaunch(true)}><Boxes />{t("批量分析新比赛")}</Button>
               <Button variant="outline" disabled={running || !studio.segments.length} onClick={() => void studio.launchScoreLabeling()}>
-                <ScanSearch />{scoreLabelRunning ? "标注中" : studio.project?.score_labeling.configured ? "标注未知比分" : "生成终局素材"}
+                <ScanSearch />{scoreLabelRunning ? t("标注中") : studio.project?.score_labeling.configured ? t("标注未知比分") : t("生成终局素材")}
               </Button>
             </div>
           </AccordionContent>
@@ -83,39 +87,39 @@ export function WorkflowPanel({
 
         <AccordionItem value="court" className="workflow-section">
           <AccordionTrigger className="workflow-trigger" data-guide-action="court-section">
-            <span><small>02</small><Crosshair /><strong>场地与轨迹</strong></span>
-            <Badge variant={studio.project?.calibration.ready ? "default" : "outline"}>{studio.project?.calibration.ready ? "场地已校准" : "未校准"}</Badge>
+            <span><small>02</small><Crosshair /><strong>{t("场地与轨迹")}</strong></span>
+            <Badge variant={studio.project?.calibration.ready ? "default" : "outline"}>{studio.project?.calibration.ready ? t("场地已校准") : t("未校准")}</Badge>
           </AccordionTrigger>
           <AccordionContent className="workflow-content tool-grid">
             {shuttle?.available_modes.includes("hybrid") ? (
               <div className="shuttle-mode-fixed">
-                <span>羽球检测</span>
+                <span>{t("羽球检测")}</span>
                 <Badge variant="secondary">Hybrid</Badge>
                 <Tooltip>
-                  <TooltipTrigger asChild><button className="shuttle-mode-help" type="button" aria-label="了解 Hybrid 羽球检测"><CircleHelp /></button></TooltipTrigger>
-                  <TooltipContent side="bottom">结合 TrackNet 与 YOLO，轨迹最稳定。</TooltipContent>
+                  <TooltipTrigger asChild><button className="shuttle-mode-help" type="button" aria-label={t("了解 Hybrid 羽球检测")}><CircleHelp /></button></TooltipTrigger>
+                  <TooltipContent side="bottom">{t("结合 TrackNet 与 YOLO，轨迹最稳定。")}</TooltipContent>
                 </Tooltip>
               </div>
             ) : null}
             <Button data-guide-action="calibration" size="sm" variant="outline" className={toolMode === "calibration" ? "tool-card active" : "tool-card"} onClick={() => onToolMode(toolMode === "calibration" ? "none" : "calibration")}>
-              <Crosshair /><span><strong>框选球场</strong></span>
+              <Crosshair /><span><strong>{t("框选球场")}</strong></span>
             </Button>
             <Button size="sm" variant="outline" className={toolMode === "shuttle" ? "tool-card active" : "tool-card"} disabled={!shuttle?.configured && !shuttle?.generated} onClick={() => onToolMode(toolMode === "shuttle" ? "none" : "shuttle")}>
-              <ScanSearch /><span><strong>{shuttle?.stale ? "球路需更新" : shuttle?.generated ? "查看／修正球路" : "羽球轨迹"}</strong></span>
+              <ScanSearch /><span><strong>{shuttle?.stale ? t("球路需更新") : shuttle?.generated ? t("查看／修正球路") : t("羽球轨迹")}</strong></span>
             </Button>
             <div className="tool-note shuttle-status-note">
-              <div><Badge variant={shuttle?.stale ? "destructive" : shuttle?.generated ? "default" : shuttle?.configured ? "outline" : "destructive"}>{shuttleRunning ? "分析中" : shuttle?.stale ? "需更新" : shuttle?.generated ? "已生成" : shuttle?.configured ? "未分析" : "不可用"}</Badge></div>
-              <Button size="xs" variant="secondary" disabled={!shuttle?.configured || running} onClick={() => void studio.launchShuttleAnalysis(Boolean(shuttle?.generated))}><ScanSearch />{shuttleRunning ? "正在分析球路…" : shuttle?.stale ? "按新校准重新分析" : shuttle?.generated ? "重新分析当前球路" : "分析当前视频球路"}</Button>
+              <div><Badge variant={shuttle?.stale ? "destructive" : shuttle?.generated ? "default" : shuttle?.configured ? "outline" : "destructive"}>{shuttleRunning ? t("分析中") : shuttle?.stale ? t("需更新") : shuttle?.generated ? t("已生成") : shuttle?.configured ? t("未分析") : t("不可用")}</Badge></div>
+              <Button size="xs" variant="secondary" disabled={!shuttle?.configured || running} onClick={() => void studio.launchShuttleAnalysis(Boolean(shuttle?.generated))}><ScanSearch />{shuttleRunning ? t("正在分析球路…") : shuttle?.stale ? t("按新校准重新分析") : shuttle?.generated ? t("重新分析当前球路") : t("分析当前视频球路")}</Button>
             </div>
             <div className="tool-note visual-analysis-card">
-              <strong>姿态与球路</strong>
+              <strong>{t("姿态与球路")}</strong>
               <Button
                 size="xs"
                 disabled={running || (!pose?.configured && !shuttle?.configured)}
                 onClick={() => void studio.launchVisualAnalysis(Boolean(pose?.current && shuttle?.current))}
               >
                 <Activity />
-                {visualRunning ? "分析中" : pose?.current && shuttle?.current ? "重新分析" : "分析整段视频"}
+                {visualRunning ? t("分析中") : pose?.current && shuttle?.current ? t("重新分析") : t("分析整段视频")}
               </Button>
             </div>
           </AccordionContent>
@@ -124,14 +128,14 @@ export function WorkflowPanel({
       <AlertDialog open={pendingBatch !== null} onOpenChange={(open) => { if (!open) setPendingBatch(null); }}>
         <AlertDialogContent>
           <AlertDialogHeader>
-            <AlertDialogTitle>{pendingBatch ? "批量分析所有新比赛？" : "重新自动分析当前视频？"}</AlertDialogTitle>
+            <AlertDialogTitle>{pendingBatch ? t("批量分析所有新比赛？") : t("重新自动分析当前视频？")}</AlertDialogTitle>
             <AlertDialogDescription>
               {pendingBatch
-                ? "Studio 会处理输入文件夹中的新项目；已有时间表、标准答案或已剪标记的视频会跳过。"
-                : `${studio.dirty ? "当前有未保存修改；" : ""}模型结果会替换当前时间轴，并在已有时间表时创建 .bak 备份。`}
+                ? t("Studio 会处理输入文件夹中的新项目；已有时间表、标准答案或已剪标记的视频会跳过。")
+                : t("{{value1}}模型结果会替换当前时间轴，并在已有时间表时创建 .bak 备份。", { value1: studio.dirty ? t("当前有未保存修改；") : "" })}
             </AlertDialogDescription>
           </AlertDialogHeader>
-          <AlertDialogFooter><AlertDialogCancel>取消</AlertDialogCancel><AlertDialogAction onClick={launch}>{pendingBatch ? "开始批量分析" : "替换并分析"}</AlertDialogAction></AlertDialogFooter>
+          <AlertDialogFooter><AlertDialogCancel>{t("取消")}</AlertDialogCancel><AlertDialogAction onClick={launch}>{pendingBatch ? t("开始批量分析") : t("替换并分析")}</AlertDialogAction></AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
     </section>

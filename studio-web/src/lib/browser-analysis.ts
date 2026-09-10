@@ -1,3 +1,4 @@
+import { t } from "./i18n";
 import type { Segment } from "@/types/studio";
 
 export interface MotionSample {
@@ -88,7 +89,7 @@ function waitForMedia(video: HTMLVideoElement, eventName: "loadedmetadata" | "se
       signal.removeEventListener("abort", cancelled);
     };
     const ready = () => { cleanup(); resolve(); };
-    const failed = () => { cleanup(); reject(new Error("无法读取这个视频")); };
+    const failed = () => { cleanup(); reject(new Error(t("无法读取这个视频"))); };
     const cancelled = () => { cleanup(); reject(new DOMException("Analysis cancelled", "AbortError")); };
     video.addEventListener(eventName, ready, { once: true });
     video.addEventListener("error", failed, { once: true });
@@ -117,14 +118,14 @@ export async function analyzeVideoInBrowser(
   try {
     if (video.readyState < 1) await waitForMedia(video, "loadedmetadata", signal);
     const duration = Number.isFinite(video.duration) ? video.duration : 0;
-    if (!duration) throw new Error("无法读取视频时长");
+    if (!duration) throw new Error(t("无法读取视频时长"));
     const sampleRate = duration > 30 * 60 ? 1 : duration > 15 * 60 ? 1.5 : 2.5;
     const sampleCount = Math.max(2, Math.ceil(duration * sampleRate));
     const canvas = document.createElement("canvas");
     canvas.width = 128;
     canvas.height = Math.max(54, Math.round(128 * video.videoHeight / Math.max(1, video.videoWidth)));
     const context = canvas.getContext("2d", { willReadFrequently: true });
-    if (!context) throw new Error("浏览器无法创建视频分析画布");
+    if (!context) throw new Error(t("浏览器无法创建视频分析画布"));
     const samples: MotionSample[] = [];
     let previous: Uint8Array | null = null;
 
@@ -146,7 +147,7 @@ export async function analyzeVideoInBrowser(
       samples.push({ time, motion });
       previous = gray;
       if (index % 5 === 0 || index === sampleCount - 1) {
-        onProgress({ progress: (index + 1) / sampleCount, message: `分析画面 ${Math.round((index + 1) / sampleCount * 100)}%` });
+        onProgress({ progress: (index + 1) / sampleCount, message: t("分析画面 {{value1}}%", { value1: Math.round((index + 1) / sampleCount * 100) }) });
         await new Promise<void>((resolve) => window.setTimeout(resolve, 0));
       }
     }

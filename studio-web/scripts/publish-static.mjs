@@ -18,6 +18,7 @@ await mkdir(targetDirectory, { recursive: true });
 await cp(resolve(exportDirectory, "index.html"), resolve(targetDirectory, "index.html"));
 await cp(resolve(exportDirectory, "icon.svg"), resolve(targetDirectory, "icon.svg"));
 await cp(tutorialSource, resolve(targetDirectory, "studio-tutorial.zh-CN.md"));
+await cp(resolve(projectDirectory, "..", "docs", "studio-tutorial.en.md"), resolve(targetDirectory, "studio-tutorial.en.md"));
 await rm(targetAssets, { recursive: true, force: true });
 await cp(resolve(exportDirectory, "_next"), targetAssets, { recursive: true });
 console.log(`Published Next.js static export to ${targetDirectory}`);
