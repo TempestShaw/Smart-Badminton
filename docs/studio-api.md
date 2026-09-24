@@ -10,7 +10,8 @@ Production builds export the frontend into the Python package. During developmen
 `NEXT_PUBLIC_STUDIO_API_ORIGIN=http://127.0.0.1:8765` and run Next on port 3000. The backend allows only those
 loopback development origins, and every request must carry a loopback `Host` header (`127.0.0.1`, `localhost` or
 `[::1]`) so a web page cannot reach the API through DNS rebinding. Binding `--host` to another interface adds that host;
-a wildcard bind (`0.0.0.0`) adds this machine's own hostnames and addresses, never a wildcard.
+a wildcard bind (`0.0.0.0` or `::`) adds this machine's own hostnames and accepts an IP literal only when one of its
+interfaces owns that address. Attacker hostnames, which DNS rebinding relies on, are always rejected.
 `GET /api/health` exposes `api_schema_version`; the frontend refuses to load if its expected version differs. The same
 response and `GET /api/project` expose `runtime.ffmpeg`: video-analysis, pose and render controls stay disabled when the
 executable cannot be resolved. `POST /api/render`, automatic, shuttle and visual analysis, and pose overlays check the

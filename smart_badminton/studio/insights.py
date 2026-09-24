@@ -121,6 +121,8 @@ def _build_evidence_payload(state: StudioState) -> dict[str, Any]:
         }
     probabilities = pd.read_csv(probabilities_path)[["time_seconds", "rally_probability"]]
     data = pd.read_csv(features_path).merge(probabilities, on="time_seconds", how="inner")
+    if data.empty:
+        raise ValueError("Feature and probability timelines do not overlap; rerun automatic analysis")
     times = pd.to_numeric(data["time_seconds"], errors="coerce").fillna(0.0).tolist()
     probability = pd.to_numeric(data["rally_probability"], errors="coerce").fillna(0.0).to_numpy()
     evidence = build_rally_evidence(data, trajectory_path if trajectory_path.exists() else None)

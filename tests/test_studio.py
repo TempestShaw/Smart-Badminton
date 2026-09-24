@@ -1455,3 +1455,33 @@ def test_studio_rejects_visual_jobs_without_their_prerequisites(tmp_path: Path, 
         assert "calibration" in response.json()["detail"], path
     assert state.analysis_status == {"state": "idle"}
     assert state.analysis_lock.locked() is False
+
+
+def test_studio_wildcard_bind_accepts_own_interface_ips_only(tmp_path: Path) -> None:
+    state = StudioState(video=tmp_path / "video.mp4", rallies=tmp_path / "rallies.csv", output=tmp_path / "edited.mp4")
+    wildcard = studio.create_studio_app(state, app.allowed_hosts_for("0.0.0.0"), allow_local_ips=True)
+    loopback_only = studio.create_studio_app(state)
+
+    def status(application, host: str) -> int:
+        return TestClient(application, base_url=f"http://{host}").get("/api/health").status_code
+
+    assert status(wildcard, "127.0.0.2:8765") == 200  # another address this machine owns
+    for foreign in ("attacker.example", "8.8.8.8", "0.0.0.0"):
+        assert status(wildcard, foreign) == 400, foreign
+    assert status(loopback_only, "127.0.0.2") == 400
+    assert status(loopback_only, "localhost:8765") == 200
+
+
+def test_studio_evidence_is_unavailable_when_timelines_do_not_overlap(tmp_path: Path) -> None:
+    analysis = tmp_path / "Analysis" / "Auto" / "source"
+    analysis.mkdir(parents=True)
+    pd.DataFrame({"time_seconds": [0.0, 0.1], "near_swing_score": [0.0, 0.0]}).to_csv(analysis / "smart-features.csv", index=False)
+    pd.DataFrame({"time_seconds": [5.0, 5.1], "rally_probability": [0.9, 0.9]}).to_csv(
+        analysis / "rally-probabilities.csv", index=False
+    )
+    state = StudioState(video=tmp_path / "source.mp4", rallies=tmp_path / "rallies.csv", output=tmp_path / "e.mp4", library=tmp_path)
+
+    payload = evidence_payload(state)
+
+    assert payload["available"] is False
+    assert "do not overlap" in payload["reason"]

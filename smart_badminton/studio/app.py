@@ -1,11 +1,13 @@
 from __future__ import annotations
 
 import contextlib
+import ipaddress
 import socket
 import sys
 import threading
 import webbrowser
 from importlib.resources import files
+from functools import lru_cache
 from pathlib import Path
 from typing import Any
 
@@ -82,11 +84,51 @@ def allowed_hosts_for(host: str) -> list[str]:
 MISSING_STUDIO_DEPENDENCIES = 'Studio dependencies are missing. Install with: pip install -e ".[studio]"'
 
 
-def create_studio_app(state: StudioState, allowed_hosts: list[str] | None = None):
+@lru_cache(maxsize=64)
+def is_local_address(host: str) -> bool:
+    """True when ``host`` is an IP literal that one of this machine's interfaces owns (so a wildcard bind serves it)."""
+    try:
+        address = ipaddress.ip_address(host.strip("[]"))
+    except ValueError:
+        return False
+    if address.is_unspecified or address.is_multicast:
+        return False
+    try:
+        with socket.socket(socket.AF_INET6 if address.version == 6 else socket.AF_INET, socket.SOCK_DGRAM) as probe:
+            probe.bind((str(address), 0))
+    except OSError:
+        return False
+    return True
+
+
+class HostCheckMiddleware:
+    """Reject requests whose Host is not this machine, which blocks DNS rebinding.
+
+    Names must be listed. With ``allow_local_ips`` (wildcard binds) an IP literal is also accepted when it is one of
+    this machine's own interface addresses; rebinding attacks use the attacker's hostname, which stays rejected.
+    """
+
+    def __init__(self, app, allowed_hosts: list[str], allow_local_ips: bool = False) -> None:
+        self.app = app
+        self.allowed_hosts = {host.lower() for host in allowed_hosts}
+        self.allow_local_ips = allow_local_ips
+
+    async def __call__(self, scope, receive, send) -> None:
+        if scope["type"] in {"http", "websocket"}:
+            header = dict(scope.get("headers") or []).get(b"host", b"").decode("latin-1").lower()
+            host = header[: header.index("]") + 1] if header.startswith("[") and "]" in header else header.split(":")[0]
+            if host not in self.allowed_hosts and not (self.allow_local_ips and is_local_address(host)):
+                from starlette.responses import PlainTextResponse
+
+                await PlainTextResponse("Invalid host header", status_code=400)(scope, receive, send)
+                return
+        await self.app(scope, receive, send)
+
+
+def create_studio_app(state: StudioState, allowed_hosts: list[str] | None = None, allow_local_ips: bool = False):
     try:
         from fastapi import FastAPI, HTTPException, Request
         from fastapi.middleware.cors import CORSMiddleware
-        from fastapi.middleware.trustedhost import TrustedHostMiddleware
         from fastapi.responses import FileResponse, JSONResponse
         from fastapi.staticfiles import StaticFiles
     except ImportError as error:
@@ -96,7 +138,7 @@ def create_studio_app(state: StudioState, allowed_hosts: list[str] | None = None
     restore_analysis_status(state)
     app = FastAPI(title="Smart Badminton Studio", docs_url=None, redoc_url=None)
     # The API can browse and write local folders, so reject DNS-rebinding requests whose Host is not this machine.
-    app.add_middleware(TrustedHostMiddleware, allowed_hosts=allowed_hosts or LOOPBACK_HOSTS)
+    app.add_middleware(HostCheckMiddleware, allowed_hosts=allowed_hosts or LOOPBACK_HOSTS, allow_local_ips=allow_local_ips)
     app.add_middleware(
         CORSMiddleware,
         allow_origins=["http://127.0.0.1:3000", "http://localhost:3000"],
@@ -692,7 +734,7 @@ def run_studio(
         tracknet_packages=tracknet_packages,
     )
     # Binding beyond loopback is an explicit opt-in to LAN access, so accept that interface's Host header too.
-    app = create_studio_app(state, allowed_hosts_for(host))
+    app = create_studio_app(state, allowed_hosts_for(host), allow_local_ips=host in WILDCARD_BINDS)
     url = f"http://{host}:{port}"
     print(f"Smart Badminton Studio: {url}")
     if open_browser:
