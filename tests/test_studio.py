@@ -1207,6 +1207,7 @@ def test_studio_releases_the_analysis_lock_when_job_status_cannot_be_saved(tmp_p
     assert rejected.status_code == 400
     assert "Directory" in rejected.json()["detail"] or "directory" in rejected.json()["detail"]
     assert state.analysis_lock.locked() is False
+    assert state.analysis_status == {"state": "idle"}  # No phantom "running" job blocks other work.
 
 
 def test_studio_output_filename_cannot_escape_the_chosen_folder(tmp_path: Path) -> None:
