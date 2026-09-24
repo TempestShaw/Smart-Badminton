@@ -22,15 +22,17 @@ matches the open video, or a job that would overlap a running render or analysis
 
 - `GET /api/filesystem/directories?path=...` lists real child directories, roots, home and parent. It returns paths,
   not file contents, and is intended only for the loopback app.
-- `POST /api/library` selects an existing folder containing supported videos and returns its recursive video index.
+- `POST /api/library` selects an existing folder containing supported videos and returns its recursive video index. A
+  missing or empty folder is rejected with HTTP 400 and the current library stays selected.
 - `POST /api/project/open` switches to one indexed source video.
-- `PUT /api/output` changes the render directory and filename for the active project.
+- `PUT /api/output` changes the render directory and filename for the active project. Only the filename's base name
+  is kept, so a render cannot be directed outside the chosen folder.
 - `GET /media/video` streams the browser preview; rendering still uses the source master.
 
 ## Editing and long-running jobs
 
-- `PUT /api/timeline` sorts segments by start, clamps them to the video duration, writes atomically and preserves a
-  `.bak`.
+- `PUT /api/timeline` rejects non-finite, negative, reversed, shorter-than-0.05 s, out-of-video or overlapping
+  segments with HTTP 400 before writing; valid timelines are written atomically with a `.bak`.
 - `POST /api/analyze` and `POST /api/analyze/batch` start real local jobs. Rally detection needs the sound of the hits,
   so a video without an audio track is reported through `automatic_analysis.configuration_issue` and these endpoints,
   plus `POST /api/analyze/visual`, refuse it with HTTP 400 before any work starts. `GET /api/analyze` reports `idle`,
@@ -48,6 +50,9 @@ matches the open video, or a job that would overlap a running render or analysis
 - `POST /api/render` starts source-quality rendering. `GET /api/render` reports the same explicit lifecycle and exact
   output path. Project state also reports whether that file currently exists, so success remains visible after a toast
   disappears or the page reloads.
+- `PUT /api/calibration` rejects points outside the frame, coincident or collinear polygons, a two-point axis whose
+  points nearly coincide, and court corners that do not form a convex quadrilateral. Automatic analysis rejects pre-
+  and post-roll values outside 0–2 seconds.
 - Calibration, shuttle annotations and score corrections each have separate typed endpoints and backups. They cannot
   silently modify the cut timeline.
 - `POST /api/score/analyze` calculates score from the saved final timeline. A later timeline or evidence update marks

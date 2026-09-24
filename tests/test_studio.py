@@ -1216,3 +1216,54 @@ def test_studio_output_filename_cannot_escape_the_chosen_folder(tmp_path: Path) 
         response = client.put("/api/output", json={"directory": str(exports), "filename": filename})
         assert response.status_code == 200
         assert state.output.parent == exports.resolve()
+
+
+def test_studio_rejects_invalid_input_before_changing_anything(tmp_path: Path, patch_studio) -> None:
+    video = tmp_path / "source.mp4"
+    video.write_bytes(b"video")
+    timeline = tmp_path / "rallies.csv"
+    timeline.write_text("rally,start_seconds,end_seconds\n1,1,2\n", encoding="utf-8")
+    original_timeline = timeline.read_bytes()
+    metadata = {"name": video.name, "duration": 10.0, "fps": 30.0, "frame_count": 300, "width": 1280, "height": 720}
+    patch_studio("video_metadata", lambda _path: metadata)
+    patch_studio("audio_available", lambda _state, _video=None: True)
+    state = StudioState(video=video, rallies=timeline, output=tmp_path / "edited.mp4", library=tmp_path)
+    client = client_for(state)
+
+    for segments in (
+        [{"start": -1, "end": 2}],
+        [{"start": 1, "end": 1.01}],
+        [{"start": 3, "end": 2}],
+        [{"start": 1, "end": 11}],
+        [{"start": "nan", "end": 2}],
+        [{"start": 1, "end": 3}, {"start": 2, "end": 4}],
+    ):
+        response = client.put("/api/timeline", json={"project_id": "source.mp4", "segments": segments})
+        assert response.status_code == 400, segments
+    assert timeline.read_bytes() == original_timeline
+
+    regions = client.get("/api/calibration").json()["regions"]
+    square = [[0.1, 0.1], [0.8, 0.1], [0.8, 0.8], [0.1, 0.8]]
+    for region in regions:
+        if region["required"]:
+            region["points"] = square
+    for bad in ([[0.1, 0.1], [0.2, 0.2], [0.3, 0.3]], [[0.1, 0.1], [1.4, 0.1], [0.5, 0.8]], [[0.1, 0.1], [0.8, 0.1]]):
+        regions[0]["points"] = bad
+        response = client.put("/api/calibration", json={"project_id": "source.mp4", "regions": regions})
+        assert response.status_code == 400, bad
+    regions[0]["points"] = square
+    corners = next(region for region in regions if region["id"] == "court_corners")
+    corners["points"] = [[0.1, 0.1], [0.8, 0.8], [0.8, 0.1], [0.1, 0.8]]  # self-intersecting order
+    assert client.put("/api/calibration", json={"project_id": "source.mp4", "regions": regions}).status_code == 400
+    assert state.config is None
+
+    empty = tmp_path / "empty"
+    empty.mkdir()
+    for path in (empty, tmp_path / "missing"):
+        assert client.post("/api/library", json={"path": str(path)}).status_code == 400
+    assert state.library == tmp_path
+
+    for options in ({"preroll": -10}, {"postroll": 100}, {"preroll": "nan"}):
+        assert client.post("/api/analyze", json=options).status_code == 400, options
+    assert state.analysis_lock.locked() is False
+    assert state.analysis_options["preroll"] == 0.35

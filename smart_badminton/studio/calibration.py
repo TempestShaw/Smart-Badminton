@@ -1,7 +1,9 @@
 from __future__ import annotations
 
 import json
+import math
 import os
+from collections.abc import Container
 import shutil
 import tempfile
 from pathlib import Path
@@ -50,8 +52,32 @@ DEFAULT_ANALYSIS_SETTINGS = {
 }
 
 
-def _points(value: Any) -> list[list[float]]:
-    return [[round(float(x), 6), round(float(y), 6)] for x, y in value or []]
+def _area(points: list[list[float]]) -> float:
+    return abs(sum(x0 * y1 - x1 * y0 for (x0, y0), (x1, y1) in zip(points, points[1:] + points[:1]))) / 2
+
+
+def _is_convex(points: list[list[float]]) -> bool:
+    turns = [
+        (b[0] - a[0]) * (c[1] - b[1]) - (b[1] - a[1]) * (c[0] - b[0])
+        for a, b, c in zip(points, points[1:] + points[:1], points[2:] + points[:2])
+    ]
+    return all(turn > 0 for turn in turns) or all(turn < 0 for turn in turns)
+
+
+def _points(value: Any, label: str, counts: Container[int]) -> list[list[float]]:
+    """Normalize one region, rejecting geometry that would silently corrupt analysis."""
+    points = [[round(float(x), 6), round(float(y), 6)] for x, y in value or []]
+    if len(points) not in counts:
+        raise ValueError(f"{label}: {len(points)} points is not a valid shape")
+    if not all(0 <= coordinate <= 1 for point in points for coordinate in point):  # NaN fails too
+        raise ValueError(f"{label}: every point must lie inside the video frame")
+    if len(points) == 2 and math.dist(*points) < 0.05:
+        raise ValueError(f"{label}: the two points are too close together")
+    if len(points) >= 3 and _area(points) < 1e-4:
+        raise ValueError(f"{label}: the points are coincident or collinear")
+    if len(points) == 4 and label == COURT_CORNERS_DEFINITION["label"] and not _is_convex(points):
+        raise ValueError(f"{label}: the four corners must form a convex quadrilateral in order")
+    return points
 
 
 def default_calibration_path(state: StudioState) -> Path:
@@ -123,11 +149,15 @@ def calibration_payload(state: StudioState) -> dict[str, Any]:
 def save_calibration(state: StudioState, payload: dict[str, Any]) -> tuple[Path, Path | None]:
     regions = [region for region in payload["regions"] if isinstance(region, dict)]
     by_id = {str(region.get("id")): region for region in regions}
-    masks: dict[str, Any] = {key: _points(by_id.get(key, {}).get("points")) for key in REGION_DEFINITIONS}
+    polygon = range(3, 65)
+    masks: dict[str, Any] = {
+        key: _points(by_id.get(key, {}).get("points"), str(definition["label"]), polygon)
+        for key, definition in REGION_DEFINITIONS.items()
+    }
     masks["court_ground_polygon"] = masks["active_court_polygon"]
     for region_type in EXCLUSION_REGIONS:
         masks[region_type] = [
-            _points(region["points"])
+            _points(region["points"], EXCLUSION_REGIONS[region_type][0], polygon)
             for region in regions
             if region.get("points")
             and (region.get("type") == region_type or str(region.get("id", "")).startswith(f"{region_type}:"))
@@ -146,8 +176,13 @@ def save_calibration(state: StudioState, payload: dict[str, Any]) -> tuple[Path,
         "calibration": {
             **existing_calibration,
             "mode": "studio interactive normalized polygons",
-            "court_corners_normalized": _points(by_id.get("court_corners", {}).get("points")) or None,
-            "shuttle_perspective_axis_normalized": _points(by_id.get("shuttle_perspective_axis", {}).get("points")),
+            "court_corners_normalized": _points(
+                by_id.get("court_corners", {}).get("points"), str(COURT_CORNERS_DEFINITION["label"]), (0, 4)
+            )
+            or None,
+            "shuttle_perspective_axis_normalized": _points(
+                by_id.get("shuttle_perspective_axis", {}).get("points"), str(PERSPECTIVE_AXIS_DEFINITION["label"]), (0, 2)
+            ),
             "shuttle_vanishing_extension": float(existing_calibration.get("shuttle_vanishing_extension", 1.5)),
             "note": "Created or edited interactively in Smart Badminton Studio.",
         },

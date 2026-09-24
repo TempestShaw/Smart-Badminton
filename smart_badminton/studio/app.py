@@ -196,7 +196,10 @@ def create_studio_app(state: StudioState, allowed_hosts: list[str] | None = None
     @app.post("/api/library")
     def change_library(payload: dict[str, Any]):
         require_idle(analysis=True)
-        state.library = Path(str(payload["path"])).expanduser().resolve()
+        library = Path(str(payload["path"])).expanduser().resolve()
+        if not library.is_dir() or not discover_videos(library):
+            raise ValueError(f"No supported videos found in {library}")
+        state.library = library
         return library_payload(state)
 
     @app.post("/api/project/open")
@@ -526,11 +529,18 @@ def create_studio_app(state: StudioState, allowed_hosts: list[str] | None = None
         require_idle(render=True)
         require_audio(videos)
         requested = options or {}
+
+        def padding(name: str) -> float:
+            value = float(requested.get(name, state.analysis_options[name]))
+            if not 0 <= value <= 2:  # NaN fails too
+                raise ValueError(f"{name} must be between 0 and 2 seconds")
+            return value
+
         # Parse before taking the lock: only the job's worker releases it.
         analysis_options = {
             **state.analysis_options,
-            "preroll": float(requested.get("preroll", state.analysis_options["preroll"])),
-            "postroll": float(requested.get("postroll", state.analysis_options["postroll"])),
+            "preroll": padding("preroll"),
+            "postroll": padding("postroll"),
             "suppress_handoffs": bool(requested.get("suppress_handoffs", True)),
         }
         acquire_analysis()

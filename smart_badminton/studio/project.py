@@ -96,6 +96,14 @@ def public_segments(path: Path) -> list[dict[str, Any]]:
 
 def timeline_rows(segments: list[dict[str, Any]], duration: float) -> list[dict[str, Any]]:
     ordered = sorted(segments, key=lambda item: float(item["start"]))
+    previous_end = 0.0
+    for index, item in enumerate(ordered, 1):
+        start, end = float(item["start"]), float(item["end"])
+        if not (start >= 0 and end - start >= 0.05 and end <= duration + 0.05):  # NaN fails too
+            raise ValueError(f"Rally {index} ({start:.3f}–{end:.3f}s) must lie inside the video and last at least 0.05s")
+        if start < previous_end - 0.001:
+            raise ValueError(f"Rally {index} overlaps the rally before it")
+        previous_end = end
     return [
         {
             "rally": index,
