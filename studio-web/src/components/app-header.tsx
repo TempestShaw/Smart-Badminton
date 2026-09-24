@@ -13,6 +13,7 @@ import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, 
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { BackgroundJobCenter } from "@/components/background-job-center";
 import { StudioTutorial } from "@/components/studio-tutorial";
 import type { StudioController } from "@/hooks/use-studio-controller";
@@ -65,20 +66,18 @@ export function AppHeader({ studio, onSwitchEngine }: { studio: StudioController
               </AlertDialogDescription>
             </AlertDialogHeader>
             <div className="grid gap-2">
-              <label className="grid gap-2 rounded-md border p-3 text-sm">
+              <div className="grid gap-2 rounded-[12px] border p-3 text-[13px]">
                 <span>{t("内容范围")}</span>
-                <select
-                  aria-label={t("内容范围")}
-                  className="h-8 w-full rounded-lg border border-input bg-background px-2 text-sm"
-                  value={scoreReady ? winnerFilter : "all"}
-                  onChange={(event) => setWinnerFilter(event.target.value as "all" | "near" | "far")}
-                >
-                  <option value="all">{t("全部回合")}</option>
-                  <option value="near" disabled={!scoreReady}>{t("近场得分")}</option>
-                  <option value="far" disabled={!scoreReady}>{t("远场得分")}</option>
-                </select>
-              </label>
-              <label className="flex items-center gap-3 rounded-md border p-3 text-sm">
+                <Select value={scoreReady ? winnerFilter : "all"} onValueChange={(value) => setWinnerFilter(value as "all" | "near" | "far")}>
+                  <SelectTrigger className="w-full" aria-label={t("内容范围")}><SelectValue /></SelectTrigger>
+                  <SelectContent position="popper">
+                    <SelectItem value="all">{t("全部回合")}</SelectItem>
+                    <SelectItem value="near" disabled={!scoreReady}>{t("近场得分")}</SelectItem>
+                    <SelectItem value="far" disabled={!scoreReady}>{t("远场得分")}</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+              <label className="flex items-center gap-3 rounded-[12px] border p-3 text-[13px]">
                 <Checkbox
                   checked={trajectoryReady && includeTrajectory}
                   disabled={!trajectoryReady}
@@ -86,7 +85,7 @@ export function AppHeader({ studio, onSwitchEngine }: { studio: StudioController
                 />
                 <span>{trajectoryReady ? t("包含羽球轨迹") : t("需先分析球路")}</span>
               </label>
-              <label className="flex items-center gap-3 rounded-md border p-3 text-sm">
+              <label className="flex items-center gap-3 rounded-[12px] border p-3 text-[13px]">
                 <Checkbox
                   checked={scoreReady && includeScore}
                   disabled={!scoreReady}
@@ -111,7 +110,7 @@ export function AppHeader({ studio, onSwitchEngine }: { studio: StudioController
         </AlertDialog>
       </div>
       {studio.analysisStatus.state === "running" ? (
-        <div className="topbar-job-progress" aria-hidden="true"><span style={{ width: `${Math.max(0, Math.min(100, (studio.analysisStatus.progress ?? 0) * 100))}%` }} /></div>
+        <div className="topbar-job-progress" aria-hidden="true"><span style={{ transform: `scaleX(${Math.max(0, Math.min(1, studio.analysisStatus.progress ?? 0))})` }} /></div>
       ) : null}
     </header>
   );
