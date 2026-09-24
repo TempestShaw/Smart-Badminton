@@ -34,8 +34,12 @@ def start_analysis_job(
         finally:
             state.analysis_lock.release()
 
-    begin_analysis_status(state, mode=mode, stage="queued", progress=0.0, completed=0, **status)
-    threading.Thread(target=run, daemon=True).start()
+    try:
+        begin_analysis_status(state, mode=mode, stage="queued", progress=0.0, completed=0, **status)
+        threading.Thread(target=run, daemon=True).start()
+    except BaseException:
+        state.analysis_lock.release()  # No worker exists yet to release it.
+        raise
     return state.analysis_status
 
 

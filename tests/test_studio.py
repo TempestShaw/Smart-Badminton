@@ -1187,3 +1187,32 @@ def test_studio_starts_when_the_saved_job_status_is_unreadable(tmp_path: Path) -
     for content in ('{"state": "runn', "[1, 2]"):
         status_path.write_text(content, encoding="utf-8")
         assert client_for(state).get("/api/analyze").json() == {"state": "idle"}
+
+
+def test_studio_releases_the_analysis_lock_when_job_status_cannot_be_saved(tmp_path: Path, patch_studio) -> None:
+    video = tmp_path / "source.mp4"
+    video.write_bytes(b"video")
+    timeline = tmp_path / "rallies.csv"
+    timeline.write_text("rally,start_seconds,end_seconds\n1,1,2\n", encoding="utf-8")
+    (tmp_path / ".smart-badminton").write_text("not a directory", encoding="utf-8")
+    patch_studio("audio_available", lambda _state, _video=None: True)
+    state = StudioState(video=video, rallies=timeline, output=tmp_path / "edited.mp4", library=tmp_path)
+
+    rejected = client_for(state).post("/api/analyze", json={})
+
+    assert rejected.status_code == 400
+    assert state.analysis_lock.locked() is False
+
+
+def test_studio_output_filename_cannot_escape_the_chosen_folder(tmp_path: Path) -> None:
+    video = tmp_path / "source.mp4"
+    video.write_bytes(b"video")
+    exports = tmp_path / "exports"
+    exports.mkdir()
+    state = StudioState(video=video, rallies=tmp_path / "rallies.csv", output=tmp_path / "edited.mp4", library=tmp_path)
+    client = client_for(state)
+
+    for filename in ("../../escaped.mp4", str(tmp_path / "elsewhere" / "absolute.mp4")):
+        response = client.put("/api/output", json={"directory": str(exports), "filename": filename})
+        assert response.status_code == 200
+        assert state.output.parent == exports.resolve()

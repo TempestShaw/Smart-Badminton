@@ -222,7 +222,8 @@ def create_studio_app(state: StudioState, allowed_hosts: list[str] | None = None
         require_idle(render=True)
         directory = Path(str(payload["directory"])).expanduser().resolve()
         state.output_directory = directory
-        state.output = directory / str(payload.get("filename") or state.output.name).strip()
+        # Keep only the base name so a filename cannot point outside the chosen folder.
+        state.output = directory / Path(str(payload.get("filename") or state.output.name).strip()).name
         state.render_status = {"state": "idle"}
         return {"ok": True, **output_payload(state)}
 
