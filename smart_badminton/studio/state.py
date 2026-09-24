@@ -140,7 +140,12 @@ def restore_analysis_status(state: StudioState) -> None:
     path = _analysis_status_path(state)
     if not path.exists():
         return
-    restored = json.loads(path.read_text(encoding="utf-8"))
+    try:
+        restored = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return  # A truncated status file must not stop Studio from starting.
+    if not isinstance(restored, dict):
+        return
     if restored.get("state") == "running":
         restored = {
             **restored,

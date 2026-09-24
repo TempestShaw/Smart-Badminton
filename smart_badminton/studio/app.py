@@ -524,14 +524,16 @@ def create_studio_app(state: StudioState, allowed_hosts: list[str] | None = None
     def launch_analysis(videos: list[Path], mode: str, options: dict[str, Any] | None) -> dict[str, Any]:
         require_idle(render=True)
         require_audio(videos)
-        acquire_analysis()
         requested = options or {}
-        state.analysis_options = {
+        # Parse before taking the lock: only the job's worker releases it.
+        analysis_options = {
             **state.analysis_options,
             "preroll": float(requested.get("preroll", state.analysis_options["preroll"])),
             "postroll": float(requested.get("postroll", state.analysis_options["postroll"])),
             "suppress_handoffs": bool(requested.get("suppress_handoffs", True)),
         }
+        acquire_analysis()
+        state.analysis_options = analysis_options
         single = len(videos) == 1
         return jobs.start_analysis_job(
             state,

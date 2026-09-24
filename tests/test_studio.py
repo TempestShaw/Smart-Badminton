@@ -1161,3 +1161,29 @@ def test_studio_refuses_to_analyze_a_video_without_audio(tmp_path: Path, patch_s
     assert batch.status_code == 400
     assert batch.json()["detail"] == "这些视频没有音轨，无法自动分析：first.mp4、second.mp4"
     assert state.analysis_status["state"] == "idle"
+
+
+def test_studio_releases_the_analysis_lock_when_options_are_invalid(tmp_path: Path, patch_studio) -> None:
+    video = tmp_path / "source.mp4"
+    video.write_bytes(b"video")
+    timeline = tmp_path / "rallies.csv"
+    timeline.write_text("rally,start_seconds,end_seconds\n1,1,2\n", encoding="utf-8")
+    patch_studio("audio_available", lambda _state, _video=None: True)
+    state = StudioState(video=video, rallies=timeline, output=tmp_path / "edited.mp4", library=tmp_path)
+    client = client_for(state)
+
+    rejected = client.post("/api/analyze", json={"preroll": "not-a-number"})
+
+    assert rejected.status_code == 400
+    assert state.analysis_lock.locked() is False
+
+
+def test_studio_starts_when_the_saved_job_status_is_unreadable(tmp_path: Path) -> None:
+    video = tmp_path / "source.mp4"
+    video.write_bytes(b"video")
+    status_path = tmp_path / ".smart-badminton" / "jobs" / "analysis-status.json"
+    status_path.parent.mkdir(parents=True)
+    state = StudioState(video=video, rallies=tmp_path / "rallies.csv", output=tmp_path / "edited.mp4", library=tmp_path)
+    for content in ('{"state": "runn', "[1, 2]"):
+        status_path.write_text(content, encoding="utf-8")
+        assert client_for(state).get("/api/analyze").json() == {"state": "idle"}
