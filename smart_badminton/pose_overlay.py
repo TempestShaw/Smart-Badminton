@@ -122,7 +122,9 @@ def _draw_skeleton(
     confidences: np.ndarray | None,
     color: tuple[int, int, int],
 ) -> None:
-    visible = lambda index: confidences is None or float(confidences[index]) >= 0.2
+    def visible(index: int) -> bool:
+        return confidences is None or float(confidences[index]) >= 0.2
+
     for first, second in COCO_SKELETON:
         if visible(first) and visible(second):
             cv2.line(
