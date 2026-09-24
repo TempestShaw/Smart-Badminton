@@ -100,7 +100,7 @@ Status: `[x]` complete, `[~]` implemented but awaiting broader video validation,
 - `phase_examples.py`: boundary corrections plus local phase evidence for future post-model tuning.
 - `shuttle_training.py`: dataset rights audit, camera-disjoint split and licensed checkpoint packaging.
 - `doctor.py`: first-run environment, encoder fallback and checkpoint provenance checks.
-- `studio.py`: orchestration and file management; it should not contain detection algorithms.
+- `studio/`: orchestration and file management; it should not contain detection algorithms.
 - `studio-web/`: typed React/Next.js UI only; media processing and filesystem writes stay behind the Studio API.
 
 New algorithms should be added to the narrowest module above. Reviewed timelines live under `Metadata/`, generated

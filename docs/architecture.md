@@ -29,10 +29,10 @@ The classifier produces probabilities. `segmenter.py` owns cuts. Scoring and ana
 | Cut decisions | `segmenter.py`, `rally_evidence.py` |
 | Shuttle detection and tracking | `shuttle.py`, `tracknet.py`, `hybrid.py`, `trajectory.py` |
 | Score | `court_events.py`, `scoring.py`, `score_learning.py`, `score_labeling.py` |
-| Studio API and job coordination | `studio.py` |
+| Studio API and job coordination | `studio/` |
 | Studio UI | `studio-web/` |
 
-Algorithms stay outside `studio.py`. The frontend never reads the filesystem or runs media tools directly.
+Algorithms stay outside `studio/`. The frontend never reads the filesystem or runs media tools directly.
 
 ## Model registry
 

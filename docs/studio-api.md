@@ -3,14 +3,20 @@
 Smart Badminton Studio has two independently maintainable layers:
 
 - `studio-web/`: React 19, Next.js 16 and shadcn UI. It edits typed project state and never reads local files directly.
-- `smart_badminton/studio.py`: FastAPI, media streaming, local filesystem access, background analysis and rendering.
+- `smart_badminton/studio/`: FastAPI routes (`app.py`), background jobs (`jobs.py`), the analysis hot path
+  (`pipeline.py`), and focused modules for shuttle status, insights, calibration, media and project files.
 
 Production builds export the frontend into the Python package. During development, set
 `NEXT_PUBLIC_STUDIO_API_ORIGIN=http://127.0.0.1:8765` and run Next on port 3000. The backend allows only those
-loopback development origins. `GET /api/health` exposes `api_schema_version`; the frontend refuses to load if its
-expected version differs. The same response and `GET /api/project` expose `runtime.ffmpeg`: video-analysis, pose and
-render controls stay disabled when the executable cannot be resolved, and their POST endpoints independently return
-HTTP 503 rather than queuing a job that can only fail later.
+loopback development origins, and every request must carry a loopback `Host` header (`127.0.0.1`, `localhost` or
+`[::1]`) so a web page cannot reach the API through DNS rebinding. Binding `--host` to another interface adds that host.
+`GET /api/health` exposes `api_schema_version`; the frontend refuses to load if its expected version differs. The same
+response and `GET /api/project` expose `runtime.ffmpeg`: video-analysis, pose and render controls stay disabled when the
+executable cannot be resolved. The API does not repeat these preconditions: a job started anyway fails in the
+background and reports `state=error` with the underlying message.
+
+Errors use one shape: invalid or unreadable input returns HTTP 400 with `detail`; a write whose `project_id` no longer
+matches the open video, or a job that would overlap a running render or analysis, returns HTTP 409.
 
 ## Files and projects
 
@@ -18,17 +24,17 @@ HTTP 503 rather than queuing a job that can only fail later.
   not file contents, and is intended only for the loopback app.
 - `POST /api/library` selects an existing folder containing supported videos and returns its recursive video index.
 - `POST /api/project/open` switches to one indexed source video.
-- `PUT /api/output` validates an existing writable directory, a basename-only `.mp4` filename and the active project
-  id before changing the render target.
+- `PUT /api/output` changes the render directory and filename for the active project.
 - `GET /media/video` streams the browser preview; rendering still uses the source master.
 
 ## Editing and long-running jobs
 
-- `PUT /api/timeline` validates sorted non-overlapping seconds, writes atomically and preserves a `.bak`.
+- `PUT /api/timeline` sorts segments by start, clamps them to the video duration, writes atomically and preserves a
+  `.bak`.
 - `POST /api/analyze` and `POST /api/analyze/batch` start real local jobs. `GET /api/analyze` reports `idle`,
   `running`, `complete` or `error` plus progress.
-- `POST /api/analyze/shuttle` runs detection and trajectory linking only for the active project. It validates the
-  submitted `project_id`, reports `mode=shuttle` through the same status endpoint, and never writes the editable cut
+- `POST /api/analyze/shuttle` runs detection and trajectory linking only for the active project. It rejects a stale
+  `project_id`, reports `mode=shuttle` through the same status endpoint, and never writes the editable cut
   timeline. `GET /api/project` exposes configured/generated state plus real point and flight counts; configured does
   not imply generated.
 - `PUT /api/settings/shuttle-mode` selects `yolo`, `tracknet`, or `hybrid` from the model backends configured at
