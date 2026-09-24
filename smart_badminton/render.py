@@ -2,7 +2,10 @@ from __future__ import annotations
 
 import tempfile
 from contextlib import nullcontext
+from fractions import Fraction
 from pathlib import Path
+
+import cv2
 
 from .encoding import h264_encoding_arguments, has_audio_stream, run_ffmpeg_with_encoder_fallback
 from .io import read_rows, resolve_ffmpeg
@@ -13,6 +16,17 @@ from .trajectory_overlay import create_trajectory_ass
 def _ffmpeg_filter_path(path: Path) -> str:
     value = path.resolve().as_posix().replace("\\", "/")
     return value.replace(":", r"\:").replace("'", r"\'")
+
+
+def _source_frame_rate(video: Path) -> str | None:
+    """Return the source frame rate as an exact FFmpeg rational, e.g. 30000/1001 for 29.97 fps."""
+    capture = cv2.VideoCapture(str(video))
+    fps = float(capture.get(cv2.CAP_PROP_FPS)) if capture.isOpened() else 0.0
+    capture.release()
+    if not fps > 0:
+        return None
+    rate = Fraction(fps).limit_denominator(1001)
+    return f"{rate.numerator}/{rate.denominator}"
 
 
 def render_rallies(
@@ -97,6 +111,9 @@ def render_rallies(
             if output_fps <= 0:
                 raise ValueError("Output FPS must be positive")
             video_filters.append(f"fps={output_fps:.6f}")
+        elif source_rate := _source_frame_rate(video):
+            # trim/concat drop the stream's frame rate, and FFmpeg would then fall back to 25 fps and drop frames.
+            video_filters.append(f"fps={source_rate}")
         concat_video = "[vcat]" if video_filters else "[vout]"
         concat = f"concat=n={len(rows)}:v=1:a={int(audio)}{concat_video}{'[aout]' if audio else ''}"
         filters.append("".join(inputs) + concat)

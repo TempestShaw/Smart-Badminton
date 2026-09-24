@@ -1,7 +1,10 @@
 import subprocess
+from fractions import Fraction
 from pathlib import Path
 
+import cv2
 import imageio_ffmpeg
+import pytest
 
 from smart_badminton.encoding import has_audio_stream
 from smart_badminton.render import render_rallies
@@ -192,3 +195,26 @@ def test_render_real_ffmpeg_with_and_without_source_audio(tmp_path: Path) -> Non
 
         assert output.stat().st_size > 0
         assert has_audio_stream(ffmpeg, output) is with_audio
+
+
+@pytest.mark.parametrize("rate", ["30000/1001", "30", "60"])
+def test_render_keeps_the_source_frame_rate_without_dropping_frames(tmp_path: Path, rate: str) -> None:
+    ffmpeg = imageio_ffmpeg.get_ffmpeg_exe()
+    source = tmp_path / "source.mp4"
+    subprocess.run(
+        [ffmpeg, "-y", "-loglevel", "error", "-f", "lavfi", "-i", f"testsrc=size=320x180:rate={rate}:duration=3"]
+        + ["-c:v", "libx264", "-pix_fmt", "yuv420p", str(source)],
+        check=True,
+    )
+    timeline = tmp_path / "rallies.csv"
+    timeline.write_text("rally,start_seconds,end_seconds\n1,0.5,1.5\n2,2.0,2.5\n", encoding="utf-8")
+    output = tmp_path / "edited.mp4"
+
+    render_rallies(source, timeline, output, ffmpeg=Path(ffmpeg), encoder="libx264")
+
+    source_fps = float(Fraction(rate))
+    capture = cv2.VideoCapture(str(output))
+    output_fps, frames = capture.get(cv2.CAP_PROP_FPS), capture.get(cv2.CAP_PROP_FRAME_COUNT)
+    capture.release()
+    assert output_fps == pytest.approx(source_fps, abs=0.01)
+    assert frames == pytest.approx(1.5 * source_fps, abs=2)
