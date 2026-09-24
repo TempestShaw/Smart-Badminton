@@ -267,7 +267,11 @@ def score_payload(state: StudioState) -> dict[str, Any]:
     ]
     if _is_stale(summary, inputs):
         return {"available": False, "generated": True, "stale": True, "reason": "时间表或分析数据已更新"}
-    return {**json.loads(summary.read_text(encoding="utf-8")), "available": True, "generated": True, "stale": False}
+    try:
+        cached = json.loads(summary.read_text(encoding="utf-8"))
+    except ValueError:
+        return {"available": False, "generated": True, "stale": True, "reason": "比分缓存已损坏，请重新计算比分"}
+    return {**cached, "available": True, "generated": True, "stale": False}
 
 
 def calculate_score_payload(state: StudioState) -> dict[str, Any]:
@@ -302,5 +306,7 @@ def calculate_score_payload(state: StudioState) -> dict[str, Any]:
             "updated_at": time.time(),
         }
     )
-    layout.analysis.score_summary.write_text(json.dumps(result, ensure_ascii=False, indent=2), encoding="utf-8")
+    temporary = layout.analysis.score_summary.with_suffix(".json.tmp")
+    temporary.write_text(json.dumps(result, ensure_ascii=False, indent=2), encoding="utf-8")
+    temporary.replace(layout.analysis.score_summary)  # atomic, so an interrupted write cannot corrupt the cache
     return result

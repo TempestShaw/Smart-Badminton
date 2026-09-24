@@ -1195,12 +1195,16 @@ def test_studio_releases_the_analysis_lock_when_job_status_cannot_be_saved(tmp_p
     timeline = tmp_path / "rallies.csv"
     timeline.write_text("rally,start_seconds,end_seconds\n1,1,2\n", encoding="utf-8")
     (tmp_path / ".smart-badminton").write_text("not a directory", encoding="utf-8")
+    model = tmp_path / "model.joblib"
+    model.write_bytes(b"model")
     patch_studio("audio_available", lambda _state, _video=None: True)
-    state = StudioState(video=video, rallies=timeline, output=tmp_path / "edited.mp4", library=tmp_path)
+    patch_studio("calibration_ready", lambda _state: True)
+    state = StudioState(video=video, rallies=timeline, output=tmp_path / "edited.mp4", library=tmp_path, model=model)
 
     rejected = client_for(state).post("/api/analyze", json={})
 
     assert rejected.status_code == 400
+    assert "Directory" in rejected.json()["detail"] or "directory" in rejected.json()["detail"]
     assert state.analysis_lock.locked() is False
 
 
@@ -1363,3 +1367,64 @@ def test_studio_opens_a_video_whose_shuttle_metadata_is_truncated(tmp_path: Path
 
     assert project_response.status_code == 200
     assert project_response.json()["shuttle_analysis"]["raw_generated"] is True
+
+
+def test_studio_rejects_renders_and_analysis_it_cannot_complete(tmp_path: Path, patch_studio) -> None:
+    video = tmp_path / "source.mp4"
+    video.write_bytes(b"video")
+    timeline = tmp_path / "rallies.csv"
+    timeline.write_text("rally,start_seconds,end_seconds\n1,1,2\n", encoding="utf-8")
+    patch_studio("audio_available", lambda _state, _video=None: True)
+    patch_studio("ffmpeg_available", lambda _state: True)
+    state = StudioState(video=video, rallies=timeline, output=tmp_path / "edited.mp4", library=tmp_path)
+    client = client_for(state)
+
+    for options in (
+        {"include_trajectory": "false"},
+        {"winner_filter": "everyone"},
+        {"include_trajectory": True},
+        {"include_score": True},
+        {"winner_filter": "near"},
+    ):
+        assert client.post("/api/render", json=options).status_code == 400, options
+    assert state.render_status == {"state": "idle"}
+
+    no_model = client.post("/api/analyze", json={})
+    assert no_model.status_code == 400
+    assert "model" in no_model.json()["detail"]
+    state.model = tmp_path / "model.joblib"
+    state.model.write_bytes(b"model")
+    uncalibrated = client.post("/api/analyze", json={})
+    assert uncalibrated.status_code == 400
+    assert "calibration" in uncalibrated.json()["detail"]
+    assert state.analysis_status["state"] == "idle"
+
+
+def test_studio_opens_a_video_with_corrupt_calibration_or_score_cache(tmp_path: Path, patch_studio) -> None:
+    video = tmp_path / "source.mp4"
+    video.write_bytes(b"video")
+    timeline = tmp_path / "rallies.csv"
+    timeline.write_text("rally,start_seconds,end_seconds\n1,1,2\n", encoding="utf-8")
+    config = tmp_path / "court.json"
+    config.write_text('{"masks_normalized": {', encoding="utf-8")
+    analysis = tmp_path / "Analysis" / "Auto" / "source"
+    analysis.mkdir(parents=True)
+    (analysis / "score-state.csv").write_text("rally,winner\n1,near\n", encoding="utf-8")
+    (analysis / "score-summary.json").write_text('{"rallies": [', encoding="utf-8")
+    metadata = {"name": video.name, "duration": 10.0, "fps": 30.0, "frame_count": 300, "width": 1280, "height": 720}
+    patch_studio("video_metadata", lambda _path: metadata)
+    state = StudioState(video=video, rallies=timeline, output=tmp_path / "edited.mp4", library=tmp_path, config=config)
+
+    project_payload = client_for(state).get("/api/project")
+
+    assert project_payload.status_code == 200
+    assert project_payload.json()["calibration"]["ready"] is False
+    assert project_payload.json()["score"]["stale"] is True
+
+
+def test_studio_wildcard_bind_keeps_host_checking_on() -> None:
+    hosts = app.allowed_hosts_for("0.0.0.0")
+    assert "*" not in hosts
+    assert {"127.0.0.1", "localhost"} <= set(hosts)
+    assert app.allowed_hosts_for("192.168.1.20")[-1] == "192.168.1.20"
+    assert app.allowed_hosts_for("127.0.0.1") == app.LOOPBACK_HOSTS

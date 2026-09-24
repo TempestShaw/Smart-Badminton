@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import contextlib
+import socket
 import sys
 import threading
 import webbrowser
@@ -59,6 +61,23 @@ from .shuttle import (
 from .state import API_SCHEMA_VERSION, StudioState, restore_analysis_status
 
 LOOPBACK_HOSTS = ["127.0.0.1", "localhost", "[::1]"]
+WILDCARD_BINDS = {"0.0.0.0", "::", ""}
+
+
+def allowed_hosts_for(host: str) -> list[str]:
+    """Host headers Studio answers to: loopback, plus the interface it was explicitly bound to.
+
+    A wildcard bind expands to this machine's own names and addresses, never to "*", so DNS rebinding stays blocked.
+    """
+    if host in LOOPBACK_HOSTS:
+        return LOOPBACK_HOSTS
+    names = {socket.gethostname(), socket.getfqdn()} if host in WILDCARD_BINDS else {host}
+    addresses: set[str] = set()
+    for name in list(names):
+        with contextlib.suppress(OSError):
+            addresses.update(str(info[4][0]) for info in socket.getaddrinfo(name, None))
+    hosts = names | {f"[{address}]" if ":" in address else address for address in addresses}
+    return [*LOOPBACK_HOSTS, *sorted(hosts - set(LOOPBACK_HOSTS))]
 MISSING_STUDIO_DEPENDENCIES = 'Studio dependencies are missing. Install with: pip install -e ".[studio]"'
 
 
@@ -264,11 +283,19 @@ def create_studio_app(state: StudioState, allowed_hosts: list[str] | None = None
     def start_render(payload: dict[str, Any] | None = None):
         payload = payload or {}
         require_idle(analysis=True)
-        options = (
-            bool(payload.get("include_trajectory", False)),
-            str(payload.get("winner_filter", "all")),
-            bool(payload.get("include_score", False)),
-        )
+        options = (payload.get("include_trajectory", False), payload.get("winner_filter", "all"), payload.get("include_score", False))
+        if not isinstance(options[0], bool) or not isinstance(options[2], bool):
+            raise ValueError("include_trajectory and include_score must be true or false")
+        if options[1] not in {"all", "near", "far"}:
+            raise ValueError("winner_filter must be all, near or far")
+        if not timeline_has_segments(state.rallies):
+            raise ValueError("The timeline has no rallies to render")
+        if not ffmpeg_available(state):
+            raise ValueError(runtime_payload(state)["ffmpeg"]["reason"] or "FFmpeg is not available")
+        if options[0] and not state.layout().analysis.shuttle_track.exists():
+            raise ValueError("Analyze the shuttle trajectory before rendering it")
+        if (options[2] or options[1] != "all") and not score_payload(state).get("available"):
+            raise ValueError("Calculate the score before rendering or filtering by it")
         with state.render_lock:
             if state.render_status.get("state") == "running":
                 return state.render_status
@@ -552,6 +579,10 @@ def create_studio_app(state: StudioState, allowed_hosts: list[str] | None = None
             "postroll": padding("postroll"),
             "suppress_handoffs": bool(requested.get("suppress_handoffs", True)),
         }
+        if not (state.model and state.model.exists()):
+            raise ValueError("The rally model is not configured or its file is missing")
+        if not calibration_ready(state):
+            raise ValueError("Complete the court calibration before automatic analysis")
         acquire_analysis()
         state.analysis_options = analysis_options
         single = len(videos) == 1
@@ -654,8 +685,7 @@ def run_studio(
         tracknet_packages=tracknet_packages,
     )
     # Binding beyond loopback is an explicit opt-in to LAN access, so accept that interface's Host header too.
-    allowed_hosts = LOOPBACK_HOSTS if host in LOOPBACK_HOSTS else [*LOOPBACK_HOSTS, host if host != "0.0.0.0" else "*"]
-    app = create_studio_app(state, allowed_hosts)
+    app = create_studio_app(state, allowed_hosts_for(host))
     url = f"http://{host}:{port}"
     print(f"Smart Badminton Studio: {url}")
     if open_browser:

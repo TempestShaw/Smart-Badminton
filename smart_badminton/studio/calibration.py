@@ -85,7 +85,12 @@ def default_calibration_path(state: StudioState) -> Path:
 
 
 def load_calibration_data(state: StudioState) -> dict[str, Any]:
-    return json.loads(state.config.read_text(encoding="utf-8")) if state.config_ready() else {}
+    if not state.config_ready():
+        return {}
+    try:
+        return json.loads(state.config.read_text(encoding="utf-8"))
+    except ValueError:
+        return {}  # An unreadable config shows as uncalibrated; saving keeps the old file as .bak.
 
 
 def calibration_ready(state: StudioState) -> bool:

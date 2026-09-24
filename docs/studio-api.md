@@ -9,11 +9,13 @@ Smart Badminton Studio has two independently maintainable layers:
 Production builds export the frontend into the Python package. During development, set
 `NEXT_PUBLIC_STUDIO_API_ORIGIN=http://127.0.0.1:8765` and run Next on port 3000. The backend allows only those
 loopback development origins, and every request must carry a loopback `Host` header (`127.0.0.1`, `localhost` or
-`[::1]`) so a web page cannot reach the API through DNS rebinding. Binding `--host` to another interface adds that host.
+`[::1]`) so a web page cannot reach the API through DNS rebinding. Binding `--host` to another interface adds that host;
+a wildcard bind (`0.0.0.0`) adds this machine's own hostnames and addresses, never a wildcard.
 `GET /api/health` exposes `api_schema_version`; the frontend refuses to load if its expected version differs. The same
 response and `GET /api/project` expose `runtime.ffmpeg`: video-analysis, pose and render controls stay disabled when the
-executable cannot be resolved. The API does not repeat these preconditions: a job started anyway fails in the
-background and reports `state=error` with the underlying message.
+executable cannot be resolved. `POST /api/render` and automatic analysis check the same preconditions (FFmpeg, a
+non-empty timeline, requested trajectory/score data, the rally model and calibration) and return HTTP 400 before
+starting any work.
 
 Errors use one shape: invalid or unreadable input returns HTTP 400 with `detail`; a write whose `project_id` is missing or no
 longer matches the open video, or a job that would overlap a running render or analysis, returns HTTP 409.
