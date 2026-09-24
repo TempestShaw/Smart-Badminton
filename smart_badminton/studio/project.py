@@ -137,6 +137,9 @@ def _read_video_metadata(video_path: str, mtime_ns: int, size: int) -> tuple[flo
     del mtime_ns, size
     capture = cv2.VideoCapture(video_path)
     fps = float(capture.get(cv2.CAP_PROP_FPS))
+    if not capture.isOpened() or not fps > 0:
+        capture.release()
+        raise ValueError(f"Could not read video: {Path(video_path).name}")
     frame_count = int(capture.get(cv2.CAP_PROP_FRAME_COUNT))
     width = int(capture.get(cv2.CAP_PROP_FRAME_WIDTH))
     height = int(capture.get(cv2.CAP_PROP_FRAME_HEIGHT))

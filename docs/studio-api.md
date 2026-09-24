@@ -15,8 +15,8 @@ response and `GET /api/project` expose `runtime.ffmpeg`: video-analysis, pose an
 executable cannot be resolved. The API does not repeat these preconditions: a job started anyway fails in the
 background and reports `state=error` with the underlying message.
 
-Errors use one shape: invalid or unreadable input returns HTTP 400 with `detail`; a write whose `project_id` no longer
-matches the open video, or a job that would overlap a running render or analysis, returns HTTP 409.
+Errors use one shape: invalid or unreadable input returns HTTP 400 with `detail`; a write whose `project_id` is missing or no
+longer matches the open video, or a job that would overlap a running render or analysis, returns HTTP 409.
 
 ## Files and projects
 

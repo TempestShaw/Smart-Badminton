@@ -106,7 +106,10 @@ def make_proxy(state: StudioState, video: Path) -> Path:
 
 
 def pose_overlay_path(state: StudioState, rally_number: int) -> tuple[Path, dict[str, Any]]:
-    segment = public_segments(state.rallies)[rally_number - 1]
+    segments = public_segments(state.rallies)
+    if not 1 <= rally_number <= len(segments):
+        raise ValueError(f"Rally {rally_number} does not exist; the timeline has {len(segments)} rallies")
+    segment = segments[rally_number - 1]
     start, end = float(segment["start"]), float(segment["end"])
     name = f"pose_v3_rally_{rally_number:03d}_{round(start * 1000):09d}_{round(end * 1000):09d}.mp4"
     return state.layout().analysis.root / "Pose_Overlays" / name, segment

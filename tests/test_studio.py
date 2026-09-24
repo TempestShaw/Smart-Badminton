@@ -1213,7 +1213,7 @@ def test_studio_output_filename_cannot_escape_the_chosen_folder(tmp_path: Path) 
     client = client_for(state)
 
     for filename in ("../../escaped.mp4", str(tmp_path / "elsewhere" / "absolute.mp4")):
-        response = client.put("/api/output", json={"directory": str(exports), "filename": filename})
+        response = client.put("/api/output", json={"project_id": "source.mp4", "directory": str(exports), "filename": filename})
         assert response.status_code == 200
         assert state.output.parent == exports.resolve()
 
@@ -1288,3 +1288,31 @@ def test_studio_saves_a_job_status_before_reporting_it(tmp_path: Path, monkeypat
 
     assert json.loads(status_path.read_text(encoding="utf-8"))["state"] == "complete"
     assert "complete" not in seen_in_memory
+
+
+def test_studio_rejects_stale_writes_unknown_rallies_and_modes(tmp_path: Path, patch_studio) -> None:
+    video = tmp_path / "source.mp4"
+    video.write_bytes(b"video")
+    timeline = tmp_path / "rallies.csv"
+    timeline.write_text("rally,start_seconds,end_seconds\n1,1,2\n", encoding="utf-8")
+    original_timeline = timeline.read_bytes()
+    metadata = {"name": video.name, "duration": 10.0, "fps": 30.0, "frame_count": 300, "width": 1280, "height": 720}
+    patch_studio("video_metadata", lambda _path: metadata)
+    state = StudioState(video=video, rallies=timeline, output=tmp_path / "edited.mp4", library=tmp_path)
+    client = client_for(state)
+
+    missing_id = client.put("/api/timeline", json={"segments": [{"start": 3, "end": 4}]})
+    assert missing_id.status_code == 409
+    assert timeline.read_bytes() == original_timeline
+    for rally in (0, -1, 2):
+        assert client.get("/media/pose-overlay", params={"rally": rally}).status_code == 400, rally
+    assert client.put("/api/settings/shuttle-mode", json={"mode": "tracknet"}).status_code == 400
+    assert state.shuttle_mode == "hybrid"
+
+
+def test_studio_reports_an_unreadable_video(tmp_path: Path) -> None:
+    corrupt = tmp_path / "corrupt.mp4"
+    corrupt.write_bytes(b"not a video")
+
+    with pytest.raises(ValueError, match="Could not read video: corrupt.mp4"):
+        project.video_metadata(corrupt)

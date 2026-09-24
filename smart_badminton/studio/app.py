@@ -49,7 +49,13 @@ from .project import (
     video_id,
     video_metadata,
 )
-from .shuttle import RAW_INVALIDATING_REASONS, model_registry, shuttle_annotation_payload, shuttle_status_payload
+from .shuttle import (
+    RAW_INVALIDATING_REASONS,
+    available_shuttle_modes,
+    model_registry,
+    shuttle_annotation_payload,
+    shuttle_status_payload,
+)
 from .state import API_SCHEMA_VERSION, StudioState, restore_analysis_status
 
 LOOPBACK_HOSTS = ["127.0.0.1", "localhost", "[::1]"]
@@ -92,7 +98,7 @@ def create_studio_app(state: StudioState, allowed_hosts: list[str] | None = None
     def require_project(payload: dict[str, Any] | None) -> str:
         """Reject writes from a tab that still shows a different video."""
         requested = str((payload or {}).get("project_id", "")).strip()
-        if requested and requested != active_project():
+        if requested != active_project():  # A missing id is as stale as a wrong one.
             raise HTTPException(status_code=409, detail="The open project changed; reload Studio")
         return active_project()
 
@@ -486,7 +492,10 @@ def create_studio_app(state: StudioState, allowed_hosts: list[str] | None = None
 
     @app.put("/api/settings/shuttle-mode")
     def update_shuttle_mode(payload: dict[str, Any]):
-        state.shuttle_mode = str(payload["mode"]).strip().lower()
+        mode = str(payload["mode"]).strip().lower()
+        if mode not in available_shuttle_modes(state):
+            raise ValueError(f"Shuttle mode {mode!r} is not configured; available: {', '.join(available_shuttle_modes(state))}")
+        state.shuttle_mode = mode
         return shuttle_status_payload(state)
 
     @app.post("/api/analyze/visual")
