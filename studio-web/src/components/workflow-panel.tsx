@@ -64,8 +64,8 @@ export function WorkflowPanel({
         <AccordionItem value="auto" className="workflow-section">
           <AccordionTrigger className="workflow-trigger" data-guide-action="auto-section">
             <span><small>01</small><Bot /><strong>{t("自动剪片")}</strong></span>
-            <Badge variant={automatic?.configured ? "default" : ffmpegReady ? "outline" : "destructive"}>
-              {automatic?.configured ? t("已配置") : ffmpegReady ? t("待校准") : t("FFmpeg 缺失")}
+            <Badge variant={automatic?.configured ? "default" : ffmpegReady && automatic?.audio_available ? "outline" : "destructive"}>
+              {automatic?.configured ? t("已配置") : !ffmpegReady ? t("FFmpeg 缺失") : automatic?.audio_available ? t("待校准") : t("无音轨")}
             </Badge>
           </AccordionTrigger>
           <AccordionContent className="workflow-content auto-cut-content">

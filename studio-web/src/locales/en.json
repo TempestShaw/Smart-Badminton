@@ -540,5 +540,8 @@
   "stage.segment": "Segmentation",
   "stage.pose": "Player pose",
   "stage.complete": "Complete",
-  "stage.queued": "Queued"
+  "stage.queued": "Queued",
+  "无音轨": "No audio track",
+  "此视频没有音轨，自动分析需要击球声，无法分析": "This video has no audio track. Automatic analysis needs the sound of the hits, so this video cannot be analyzed.",
+  "这些视频没有音轨，无法自动分析：{{value1}}": "These videos have no audio track and cannot be analyzed automatically: {{value1}}"
 }

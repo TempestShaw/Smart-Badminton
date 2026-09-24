@@ -31,7 +31,9 @@ matches the open video, or a job that would overlap a running render or analysis
 
 - `PUT /api/timeline` sorts segments by start, clamps them to the video duration, writes atomically and preserves a
   `.bak`.
-- `POST /api/analyze` and `POST /api/analyze/batch` start real local jobs. `GET /api/analyze` reports `idle`,
+- `POST /api/analyze` and `POST /api/analyze/batch` start real local jobs. Rally detection needs the sound of the hits,
+  so a video without an audio track is reported through `automatic_analysis.configuration_issue` and these endpoints,
+  plus `POST /api/analyze/visual`, refuse it with HTTP 400 before any work starts. `GET /api/analyze` reports `idle`,
   `running`, `complete` or `error` plus progress.
 - `POST /api/analyze/shuttle` runs detection and trajectory linking only for the active project. It rejects a stale
   `project_id`, reports `mode=shuttle` through the same status endpoint, and never writes the editable cut

@@ -343,7 +343,10 @@ function CalibrationPanel({
   const helperIds = new Set(["near_player_zone", "far_player_zone", "net_band", "shuttle_airspace_polygon", "shuttle_perspective_axis"]);
   const hasGeneratedHelpers = Boolean(payload?.regions.some((region) => helperIds.has(region.id) && (region.points?.length ?? 0) > 0));
   const analysisRunning = studio.analysisStatus.state === "running";
-  const visualConfigured = Boolean(studio.project?.pose_analysis.configured || studio.project?.shuttle_analysis.configured);
+  const visualConfigured = Boolean(
+    studio.project?.automatic_analysis.audio_available
+    && (studio.project?.pose_analysis.configured || studio.project?.shuttle_analysis.configured),
+  );
   const rerunPrediction = () => {
     const settings = studio.project?.automatic_analysis.settings;
     if (!settings) return;

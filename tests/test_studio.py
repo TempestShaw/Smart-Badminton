@@ -874,6 +874,7 @@ def test_studio_precomputes_full_video_pose_and_shuttle_overlays(tmp_path: Path,
         if progress_callback:
             progress_callback(1.0)
 
+    patch_studio("audio_available", lambda _state, _video=None: True)
     patch_studio("render_pose_overlay", fake_pose)
     patch_studio("detect_shuttle", fake_detect)
     patch_studio("analyze_shuttle_trajectory", fake_track)
@@ -1127,3 +1128,36 @@ def test_studio_rejects_requests_for_a_foreign_host(tmp_path: Path) -> None:
     rebinding = TestClient(studio.create_studio_app(state), base_url="http://attacker.example")
     assert rebinding.get("/api/health").status_code == 400
     assert client_for(state).get("/api/health").status_code == 200
+
+
+def test_studio_refuses_to_analyze_a_video_without_audio(tmp_path: Path, patch_studio) -> None:
+    first, second = tmp_path / "first.mp4", tmp_path / "second.mp4"
+    for video in (first, second):
+        video.write_bytes(b"video")
+    timeline = tmp_path / "rallies.csv"
+    timeline.write_text("rally,start_seconds,end_seconds\n1,1,2\n", encoding="utf-8")
+    config, model = tmp_path / "court.json", tmp_path / "model.joblib"
+    config.write_text("{}", encoding="utf-8")
+    model.write_bytes(b"model")
+    metadata = {"name": "first.mp4", "duration": 10.0, "fps": 30.0, "frame_count": 300, "width": 1280, "height": 720}
+    patch_studio("video_metadata", lambda _path: metadata)
+    patch_studio("calibration_ready", lambda _state: True)
+    patch_studio("ffmpeg_available", lambda _state: True)
+    patch_studio("audio_available", lambda _state, video=None: False)
+    state = StudioState(
+        video=first, rallies=timeline, output=tmp_path / "edited.mp4", library=tmp_path, config=config, model=model
+    )
+    client = client_for(state)
+
+    automatic = client.get("/api/project").json()["automatic_analysis"]
+    assert automatic["configured"] is False
+    assert automatic["audio_available"] is False
+    assert automatic["configuration_issue"] == "此视频没有音轨，自动分析需要击球声，无法分析"
+    for path in ("/api/analyze", "/api/analyze/visual"):
+        response = client.post(path, json={"project_id": "first.mp4"})
+        assert response.status_code == 400
+        assert response.json()["detail"] == "此视频没有音轨，自动分析需要击球声，无法分析"
+    batch = client.post("/api/analyze/batch", json={})
+    assert batch.status_code == 400
+    assert batch.json()["detail"] == "这些视频没有音轨，无法自动分析：first.mp4、second.mp4"
+    assert state.analysis_status["state"] == "idle"

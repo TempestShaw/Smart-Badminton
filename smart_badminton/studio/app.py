@@ -25,7 +25,15 @@ from .insights import (
     score_labeling_payload,
     score_payload,
 )
-from .media import ffmpeg_available, full_pose_overlay_path, pose_overlay_path, pose_status_payload, runtime_payload
+from .media import (
+    NO_AUDIO_MESSAGE,
+    audio_available,
+    ffmpeg_available,
+    full_pose_overlay_path,
+    pose_overlay_path,
+    pose_status_payload,
+    runtime_payload,
+)
 from .project import (
     activate_video,
     directory_browser_payload,
@@ -94,6 +102,16 @@ def create_studio_app(state: StudioState, allowed_hosts: list[str] | None = None
         if analysis and state.analysis_status.get("state") == "running":
             raise HTTPException(status_code=409, detail="Wait for the current analysis job to finish")
 
+    def analysis_configured() -> bool:
+        return bool(calibration_ready(state) and state.model and audio_available(state))
+
+    def require_audio(videos: list[Path]) -> None:
+        silent = [video.name for video in videos if not audio_available(state, video)]
+        if len(videos) == 1 and silent:
+            raise HTTPException(status_code=400, detail=NO_AUDIO_MESSAGE)
+        if silent:
+            raise HTTPException(status_code=400, detail=f"这些视频没有音轨，无法自动分析：{'、'.join(silent)}")
+
     def acquire_analysis() -> None:
         if not state.analysis_lock.acquire(blocking=False):
             raise HTTPException(status_code=409, detail="Another analysis job is already running")
@@ -123,6 +141,7 @@ def create_studio_app(state: StudioState, allowed_hosts: list[str] | None = None
         runtime = runtime_payload(state)
         shuttle_analysis = shuttle_status_payload(state)
         ffmpeg_ok = ffmpeg_available(state)
+        has_audio = audio_available(state)
         ready = calibration_ready(state)
         return {
             "id": active_project(),
@@ -138,9 +157,12 @@ def create_studio_app(state: StudioState, allowed_hosts: list[str] | None = None
             "pose_analysis": pose_status_payload(state),
             "api_schema_version": API_SCHEMA_VERSION,
             "automatic_analysis": {
-                "configured": bool(ready and state.model and ffmpeg_ok),
+                "configured": analysis_configured(),
                 "pose_overlay_configured": bool(ready and state.pose_model and ffmpeg_ok),
-                "configuration_issue": None if ffmpeg_ok else runtime["ffmpeg"]["reason"],
+                "audio_available": has_audio,
+                "configuration_issue": (
+                    runtime["ffmpeg"]["reason"] if not ffmpeg_ok else None if has_audio else NO_AUDIO_MESSAGE
+                ),
                 "model": state.model.name if state.model else None,
                 "shuttle_model": state.shuttle_model.name if state.shuttle_model else None,
                 "tracknet_model": state.tracknet_model.name if state.tracknet_model else None,
@@ -378,7 +400,7 @@ def create_studio_app(state: StudioState, allowed_hosts: list[str] | None = None
             "ok": True,
             "path": str(path),
             "backup": str(backup) if backup else None,
-            "automatic_analysis_configured": bool(ready and state.model and ffmpeg_ok),
+            "automatic_analysis_configured": analysis_configured(),
             "pose_overlay_configured": bool(ready and state.pose_model and ffmpeg_ok),
             "shuttle_analysis": shuttle_status_payload(state),
         }
@@ -467,6 +489,7 @@ def create_studio_app(state: StudioState, allowed_hosts: list[str] | None = None
     def start_visual_analysis(payload: dict[str, Any] | None = None):
         project_id = require_project(payload)
         require_idle(render=True, analysis=True)
+        require_audio([state.video])
         pose_status = pose_status_payload(state)
         shuttle_status = shuttle_status_payload(state)
         force = bool((payload or {}).get("force", False))
@@ -500,6 +523,7 @@ def create_studio_app(state: StudioState, allowed_hosts: list[str] | None = None
 
     def launch_analysis(videos: list[Path], mode: str, options: dict[str, Any] | None) -> dict[str, Any]:
         require_idle(render=True)
+        require_audio(videos)
         acquire_analysis()
         requested = options or {}
         state.analysis_options = {

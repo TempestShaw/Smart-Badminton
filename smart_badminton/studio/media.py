@@ -1,10 +1,16 @@
 from __future__ import annotations
 
 import subprocess
+from functools import lru_cache
 from pathlib import Path
 from typing import Any
 
-from ..encoding import choose_working_video_encoder, h264_encoding_arguments, run_ffmpeg_with_encoder_fallback
+from ..encoding import (
+    choose_working_video_encoder,
+    h264_encoding_arguments,
+    has_audio_stream,
+    run_ffmpeg_with_encoder_fallback,
+)
 from ..io import resolve_ffmpeg
 from .calibration import calibration_ready
 from .project import public_segments
@@ -43,6 +49,24 @@ def runtime_payload(state: StudioState) -> dict[str, Any]:
 
 def ffmpeg_available(state: StudioState) -> bool:
     return bool(runtime_payload(state)["ffmpeg"]["available"])
+
+
+NO_AUDIO_MESSAGE = "此视频没有音轨，自动分析需要击球声，无法分析"
+
+
+@lru_cache(maxsize=64)
+def _has_audio(ffmpeg: str, video: str, mtime_ns: int, size: int) -> bool:
+    del mtime_ns, size
+    return has_audio_stream(Path(ffmpeg), Path(video))
+
+
+def audio_available(state: StudioState, video: Path | None = None) -> bool:
+    """Automatic analysis depends on hit sounds, so a video without audio cannot be analyzed."""
+    if not ffmpeg_available(state):
+        return False
+    video = (video or state.video).resolve()
+    stat = video.stat()
+    return _has_audio(runtime_payload(state)["ffmpeg"]["path"], str(video), stat.st_mtime_ns, stat.st_size)
 
 
 def record_encoder(state: StudioState, used_encoder: str, task: str) -> None:
