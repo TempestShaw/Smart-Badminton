@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import contextlib
 import threading
 from collections.abc import Callable
 from pathlib import Path
@@ -30,7 +31,8 @@ def start_analysis_job(
         try:
             work()
         except Exception as error:  # noqa: BLE001 - every background failure must reach the local UI
-            set_analysis_status(state, state="error", mode=mode, label=error_label, message=str(error))
+            with contextlib.suppress(OSError):  # the error is already visible in memory if the disk refuses it
+                set_analysis_status(state, state="error", mode=mode, label=error_label, message=str(error))
         finally:
             state.analysis_lock.release()
 

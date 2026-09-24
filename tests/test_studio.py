@@ -1316,3 +1316,50 @@ def test_studio_reports_an_unreadable_video(tmp_path: Path) -> None:
 
     with pytest.raises(ValueError, match="Could not read video: corrupt.mp4"):
         project.video_metadata(corrupt)
+
+
+def test_studio_job_reports_an_error_when_its_status_can_no_longer_be_saved(tmp_path: Path) -> None:
+    video = tmp_path / "source.mp4"
+    video.write_bytes(b"video")
+    state = StudioState(video=video, rallies=tmp_path / "rallies.csv", output=tmp_path / "edited.mp4", library=tmp_path)
+    jobs_dir = tmp_path / ".smart-badminton" / "jobs"
+
+    def fill_disk_then_report_progress() -> None:
+        for child in jobs_dir.iterdir():
+            child.unlink()
+        jobs_dir.rmdir()
+        jobs_dir.write_text("disk full stand-in", encoding="utf-8")  # every later status write now fails
+        jobs.complete(state, "visual", "done", 1, [])  # terminal updates are always written
+
+    state.analysis_lock.acquire()
+    jobs.start_analysis_job(state, "visual", "failed", fill_disk_then_report_progress, total=1)
+    deadline = time.monotonic() + 2.0
+    while state.analysis_lock.locked() and time.monotonic() < deadline:
+        time.sleep(0.01)
+
+    assert state.analysis_lock.locked() is False
+    assert state.analysis_status["state"] == "error"
+
+
+def test_studio_opens_a_video_whose_shuttle_metadata_is_truncated(tmp_path: Path, patch_studio) -> None:
+    video = tmp_path / "source.mp4"
+    video.write_bytes(b"video")
+    timeline = tmp_path / "rallies.csv"
+    timeline.write_text("rally,start_seconds,end_seconds\n1,1,2\n", encoding="utf-8")
+    config, shuttle_model = tmp_path / "court.json", tmp_path / "shuttle.pt"
+    config.write_text("{}", encoding="utf-8")
+    shuttle_model.write_bytes(b"model")
+    analysis = tmp_path / "Analysis" / "Auto" / "source"
+    analysis.mkdir(parents=True)
+    (analysis / "shuttle-raw.csv").write_text("time_seconds,center_x,center_y\n", encoding="utf-8")
+    (analysis / "shuttle-detection.json").write_text('{"mode": "hyb', encoding="utf-8")
+    metadata = {"name": video.name, "duration": 10.0, "fps": 30.0, "frame_count": 300, "width": 1280, "height": 720}
+    patch_studio("video_metadata", lambda _path: metadata)
+    state = StudioState(
+        video=video, rallies=timeline, output=tmp_path / "edited.mp4", library=tmp_path, config=config, shuttle_model=shuttle_model
+    )
+
+    project_response = client_for(state).get("/api/project")
+
+    assert project_response.status_code == 200
+    assert project_response.json()["shuttle_analysis"]["raw_generated"] is True

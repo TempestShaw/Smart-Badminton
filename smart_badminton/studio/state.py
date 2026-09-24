@@ -109,14 +109,17 @@ def _publish_analysis_status(state: StudioState, status: dict[str, Any], force: 
     with state.status_lock:
         now = time.monotonic()
         terminal = status.get("state") in {"complete", "error"}
-        if force or terminal or now - float(state.runtime_cache.get("analysis_status_write", 0.0)) >= 0.5:
-            path = _analysis_status_path(state)
-            path.parent.mkdir(parents=True, exist_ok=True)
-            temporary = path.with_suffix(".json.tmp")
-            temporary.write_text(json.dumps(status, ensure_ascii=False, indent=2), encoding="utf-8")
-            temporary.replace(path)
-            state.runtime_cache["analysis_status_write"] = now
-        state.analysis_status = status
+        try:
+            if force or terminal or now - float(state.runtime_cache.get("analysis_status_write", 0.0)) >= 0.5:
+                path = _analysis_status_path(state)
+                path.parent.mkdir(parents=True, exist_ok=True)
+                temporary = path.with_suffix(".json.tmp")
+                temporary.write_text(json.dumps(status, ensure_ascii=False, indent=2), encoding="utf-8")
+                temporary.replace(path)
+                state.runtime_cache["analysis_status_write"] = now
+        finally:
+            # Even when the disk refuses the write, clients must see the real state (e.g. the job's error).
+            state.analysis_status = status
 
 
 # Status payloads carry their own "state" key, so the Studio argument is named ``studio_state`` here.

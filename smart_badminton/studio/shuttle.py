@@ -133,9 +133,11 @@ def run_shuttle_detection(
         "inpaint_model_mtime_ns": mtime(state.inpaint_model),
         "completed_at": time.time(),
     }
-    (analysis_root / "shuttle-detection.json").write_text(
-        json.dumps(metadata, ensure_ascii=False, indent=2), encoding="utf-8"
-    )
+    # Write atomically so an interrupted run cannot leave truncated JSON behind.
+    metadata_path = analysis_root / "shuttle-detection.json"
+    temporary = metadata_path.with_suffix(".json.tmp")
+    temporary.write_text(json.dumps(metadata, ensure_ascii=False, indent=2), encoding="utf-8")
+    temporary.replace(metadata_path)
     progress(1.0, "完成")
     return results
 
@@ -162,7 +164,10 @@ def _build_shuttle_status_payload(state: StudioState) -> dict[str, Any]:
             )
             if path is not None and path.exists() and path.stat().st_mtime_ns > trajectory_mtime
         ]
-    detection = json.loads(metadata_path.read_text(encoding="utf-8")) if metadata_path.exists() else {}
+    try:
+        detection = json.loads(metadata_path.read_text(encoding="utf-8")) if metadata_path.exists() else {}
+    except ValueError:
+        detection = {}  # Unreadable metadata from an older interrupted run: the cache is simply stale.
     if raw_path.exists() and detection.get("mode") != mode:
         stale_sources.append("检测模式已更改")
     if raw_path.exists() and not metadata_path.exists():
