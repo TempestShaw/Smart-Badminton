@@ -32,6 +32,7 @@ from .media import (
     audio_available,
     ffmpeg_available,
     full_pose_overlay_path,
+    pose_configured,
     pose_overlay_path,
     pose_status_payload,
     runtime_payload,
@@ -445,6 +446,8 @@ def create_studio_app(state: StudioState, allowed_hosts: list[str] | None = None
     @app.post("/api/pose-overlay")
     def pose_overlay(payload: dict[str, Any]):
         require_project(payload)
+        if not pose_configured(state):
+            raise ValueError("Pose overlays need a complete court calibration, the pose model and FFmpeg")
         rally_number = int(payload["rally"])
         output, segment = pose_overlay_path(state, rally_number)
         with state.pose_lock:
@@ -482,6 +485,8 @@ def create_studio_app(state: StudioState, allowed_hosts: list[str] | None = None
         require_idle(render=True, analysis=True)
         force = bool((payload or {}).get("force", False))
         current = shuttle_status_payload(state)
+        if not current["configured"]:
+            raise ValueError("Complete the court calibration and configure a shuttle detector first")
         if current["current"] and not force:
             state.analysis_status = {
                 "state": "complete",
@@ -532,6 +537,8 @@ def create_studio_app(state: StudioState, allowed_hosts: list[str] | None = None
         require_audio([state.video])
         pose_status = pose_status_payload(state)
         shuttle_status = shuttle_status_payload(state)
+        if not pose_status["configured"] and not shuttle_status["configured"]:
+            raise ValueError("Configure a pose model or shuttle detector and complete the court calibration first")
         force = bool((payload or {}).get("force", False))
         run_pose = bool(pose_status["configured"] and (force or not pose_status["current"]))
         run_shuttle = bool(shuttle_status["configured"] and (force or not shuttle_status["current"]))

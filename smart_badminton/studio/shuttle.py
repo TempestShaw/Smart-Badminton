@@ -15,6 +15,7 @@ from ..shuttle import detect_shuttle
 from ..shuttle_annotations import load_shuttle_annotations
 from ..tracknet import TrackNetRuntimeConfig, detect_tracknet
 from ..trajectory import analyze_shuttle_trajectory
+from .calibration import calibration_ready
 from .project import video_id, video_metadata
 from .state import StudioState, cached_payload
 
@@ -181,7 +182,7 @@ def _build_shuttle_status_payload(state: StudioState) -> dict[str, Any]:
         if model_path is not None and detection.get(key) not in {None, model_path.stat().st_mtime_ns}:
             stale_sources.append(reason)
     return {
-        "configured": bool(state.config_ready() and mode),
+        "configured": bool(calibration_ready(state) and mode),
         "generated": trajectory_path.exists(),
         "stale": bool(stale_sources),
         "current": bool(trajectory_path.exists() and not stale_sources),

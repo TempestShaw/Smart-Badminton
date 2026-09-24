@@ -13,9 +13,9 @@ loopback development origins, and every request must carry a loopback `Host` hea
 a wildcard bind (`0.0.0.0`) adds this machine's own hostnames and addresses, never a wildcard.
 `GET /api/health` exposes `api_schema_version`; the frontend refuses to load if its expected version differs. The same
 response and `GET /api/project` expose `runtime.ffmpeg`: video-analysis, pose and render controls stay disabled when the
-executable cannot be resolved. `POST /api/render` and automatic analysis check the same preconditions (FFmpeg, a
-non-empty timeline, requested trajectory/score data, the rally model and calibration) and return HTTP 400 before
-starting any work.
+executable cannot be resolved. `POST /api/render`, automatic, shuttle and visual analysis, and pose overlays check the
+same preconditions (FFmpeg, a non-empty timeline, requested trajectory/score data, the needed models and a complete
+calibration) and return HTTP 400 before starting any work.
 
 Errors use one shape: invalid or unreadable input returns HTTP 400 with `detail`; a write whose `project_id` is missing or no
 longer matches the open video, or a job that would overlap a running render or analysis, returns HTTP 409.

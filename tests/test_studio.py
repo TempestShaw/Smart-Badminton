@@ -596,6 +596,7 @@ def test_studio_api_saves_user_shuttle_annotations(tmp_path: Path, patch_studio)
         "height": 720,
     }
     patch_studio("video_metadata", lambda _path: metadata)
+    patch_studio("calibration_ready", lambda _state: True)
     state = StudioState(
         video=video,
         rallies=timeline,
@@ -1428,3 +1429,29 @@ def test_studio_wildcard_bind_keeps_host_checking_on() -> None:
     assert {"127.0.0.1", "localhost"} <= set(hosts)
     assert app.allowed_hosts_for("192.168.1.20")[-1] == "192.168.1.20"
     assert app.allowed_hosts_for("127.0.0.1") == app.LOOPBACK_HOSTS
+
+
+def test_studio_rejects_visual_jobs_without_their_prerequisites(tmp_path: Path, patch_studio) -> None:
+    video = tmp_path / "source.mp4"
+    video.write_bytes(b"video")
+    timeline = tmp_path / "rallies.csv"
+    timeline.write_text("rally,start_seconds,end_seconds\n1,1,2\n", encoding="utf-8")
+    config, shuttle_model = tmp_path / "court.json", tmp_path / "shuttle.pt"
+    config.write_text("{}", encoding="utf-8")  # exists, but no calibrated regions
+    shuttle_model.write_bytes(b"model")
+    patch_studio("audio_available", lambda _state, _video=None: True)
+    state = StudioState(
+        video=video, rallies=timeline, output=tmp_path / "edited.mp4", library=tmp_path, config=config, shuttle_model=shuttle_model
+    )
+    client = client_for(state)
+
+    for path, payload in (
+        ("/api/analyze/shuttle", {"project_id": "source.mp4"}),
+        ("/api/analyze/visual", {"project_id": "source.mp4"}),
+        ("/api/pose-overlay", {"project_id": "source.mp4", "rally": 1}),
+    ):
+        response = client.post(path, json=payload)
+        assert response.status_code == 400, path
+        assert "calibration" in response.json()["detail"], path
+    assert state.analysis_status == {"state": "idle"}
+    assert state.analysis_lock.locked() is False
