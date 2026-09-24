@@ -1267,3 +1267,24 @@ def test_studio_rejects_invalid_input_before_changing_anything(tmp_path: Path, p
         assert client.post("/api/analyze", json=options).status_code == 400, options
     assert state.analysis_lock.locked() is False
     assert state.analysis_options["preroll"] == 0.35
+
+
+def test_studio_saves_a_job_status_before_reporting_it(tmp_path: Path, monkeypatch) -> None:
+    video = tmp_path / "source.mp4"
+    video.write_bytes(b"video")
+    state = StudioState(video=video, rallies=tmp_path / "rallies.csv", output=tmp_path / "edited.mp4", library=tmp_path)
+    status_path = tmp_path / ".smart-badminton" / "jobs" / "analysis-status.json"
+    original_write = Path.write_text
+    seen_in_memory: list[str] = []
+
+    def slow_write(self, data, *args, **kwargs):
+        # Observe what a polling client would see while the file is still being written.
+        seen_in_memory.append(state.analysis_status.get("state", ""))
+        return original_write(self, data, *args, **kwargs)
+
+    monkeypatch.setattr(Path, "write_text", slow_write)
+    studio_state.begin_analysis_status(state, mode="shuttle")
+    studio_state.set_analysis_status(state, state="complete")
+
+    assert json.loads(status_path.read_text(encoding="utf-8"))["state"] == "complete"
+    assert "complete" not in seen_in_memory

@@ -52,6 +52,7 @@ class StudioState:
     runtime_cache: dict[str, Any] = field(default_factory=dict)
     payload_cache: dict[str, tuple[tuple[Any, ...], dict[str, Any]]] = field(default_factory=dict)
     payload_cache_lock: threading.Lock = field(default_factory=threading.Lock)
+    status_lock: threading.Lock = field(default_factory=threading.Lock)
 
     @property
     def library_root(self) -> Path:
@@ -103,28 +104,29 @@ def _analysis_status_path(state: StudioState) -> Path:
     return LibraryLayout(state.library_root).analysis_status
 
 
-def _persist_analysis_status(state: StudioState, force: bool = False) -> None:
-    now = time.monotonic()
-    terminal = state.analysis_status.get("state") in {"complete", "error"}
-    if not force and not terminal and now - float(state.runtime_cache.get("analysis_status_write", 0.0)) < 0.5:
-        return
-    path = _analysis_status_path(state)
-    path.parent.mkdir(parents=True, exist_ok=True)
-    temporary = path.with_suffix(".json.tmp")
-    temporary.write_text(json.dumps(state.analysis_status, ensure_ascii=False, indent=2), encoding="utf-8")
-    temporary.replace(path)
-    state.runtime_cache["analysis_status_write"] = now
+def _publish_analysis_status(state: StudioState, status: dict[str, Any], force: bool = False) -> None:
+    """Save a status, then expose it, so a client that sees a state can rely on the file holding it too."""
+    with state.status_lock:
+        now = time.monotonic()
+        terminal = status.get("state") in {"complete", "error"}
+        if force or terminal or now - float(state.runtime_cache.get("analysis_status_write", 0.0)) >= 0.5:
+            path = _analysis_status_path(state)
+            path.parent.mkdir(parents=True, exist_ok=True)
+            temporary = path.with_suffix(".json.tmp")
+            temporary.write_text(json.dumps(status, ensure_ascii=False, indent=2), encoding="utf-8")
+            temporary.replace(path)
+            state.runtime_cache["analysis_status_write"] = now
+        state.analysis_status = status
 
 
 # Status payloads carry their own "state" key, so the Studio argument is named ``studio_state`` here.
 def set_analysis_status(studio_state: StudioState, **values: Any) -> None:
-    studio_state.analysis_status = {**studio_state.analysis_status, **values, "updated_at": time.time()}
-    _persist_analysis_status(studio_state)
+    _publish_analysis_status(studio_state, {**studio_state.analysis_status, **values, "updated_at": time.time()})
 
 
 def begin_analysis_status(studio_state: StudioState, **values: Any) -> dict[str, Any]:
     now = time.time()
-    studio_state.analysis_status = {
+    status = {
         "job_id": uuid.uuid4().hex[:12],
         "state": "running",
         "background": True,
@@ -132,7 +134,7 @@ def begin_analysis_status(studio_state: StudioState, **values: Any) -> dict[str,
         "updated_at": now,
         **values,
     }
-    _persist_analysis_status(studio_state, force=True)
+    _publish_analysis_status(studio_state, status, force=True)
     return studio_state.analysis_status
 
 
