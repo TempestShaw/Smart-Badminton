@@ -1,6 +1,9 @@
 import subprocess
 from pathlib import Path
 
+import imageio_ffmpeg
+
+from smart_badminton.encoding import has_audio_stream
 from smart_badminton.render import render_rallies
 from smart_badminton.score_overlay import create_score_ass
 from smart_badminton.trajectory_overlay import create_trajectory_ass
@@ -11,18 +14,18 @@ def test_render_retries_cpu_when_compiled_hardware_encoder_cannot_start(tmp_path
     timeline.write_text("rally,start_seconds,end_seconds\n1,0,1\n", encoding="utf-8")
     commands: list[list[str]] = []
 
-    def run(command: list[str], check: bool) -> None:
-        assert check is True
+    def run(command: list[str]) -> None:
         commands.append(command)
         if len(commands) == 1:
             raise subprocess.CalledProcessError(1, command)
 
     monkeypatch.setattr("smart_badminton.render.resolve_ffmpeg", lambda _path=None: Path("ffmpeg"))
+    monkeypatch.setattr("smart_badminton.render.has_audio_stream", lambda _ffmpeg, _video: True)
     monkeypatch.setattr(
         "smart_badminton.encoding.available_ffmpeg_encoders",
         lambda _path=None: {"h264_nvenc", "h264_qsv"},
     )
-    monkeypatch.setattr("smart_badminton.encoding.subprocess.run", run)
+    monkeypatch.setattr("smart_badminton.encoding.run_ffmpeg", run)
 
     used = render_rallies(tmp_path / "source.mp4", timeline, tmp_path / "edited.mp4", encoder="auto")
 
@@ -65,13 +68,10 @@ def test_render_adds_ass_filter_when_trajectory_is_requested(tmp_path: Path, mon
     )
     commands: list[list[str]] = []
 
-    def run(command: list[str], check: bool) -> None:
-        assert check is True
-        commands.append(command)
-
     monkeypatch.setattr("smart_badminton.render.resolve_ffmpeg", lambda _path=None: Path("ffmpeg"))
+    monkeypatch.setattr("smart_badminton.render.has_audio_stream", lambda _ffmpeg, _video: True)
     monkeypatch.setattr("smart_badminton.encoding.available_ffmpeg_encoders", lambda _path=None: {"libx264"})
-    monkeypatch.setattr("smart_badminton.encoding.subprocess.run", run)
+    monkeypatch.setattr("smart_badminton.encoding.run_ffmpeg", commands.append)
 
     used = render_rallies(
         tmp_path / "source.mp4",
@@ -129,11 +129,9 @@ def test_render_filters_winner_and_adds_score_overlay(tmp_path: Path, monkeypatc
     commands: list[list[str]] = []
 
     monkeypatch.setattr("smart_badminton.render.resolve_ffmpeg", lambda _path=None: Path("ffmpeg"))
+    monkeypatch.setattr("smart_badminton.render.has_audio_stream", lambda _ffmpeg, _video: True)
     monkeypatch.setattr("smart_badminton.encoding.available_ffmpeg_encoders", lambda _path=None: {"libx264"})
-    monkeypatch.setattr(
-        "smart_badminton.encoding.subprocess.run",
-        lambda command, check: commands.append(command),
-    )
+    monkeypatch.setattr("smart_badminton.encoding.run_ffmpeg", commands.append)
 
     render_rallies(
         tmp_path / "source.mp4",
@@ -150,3 +148,47 @@ def test_render_filters_winner_and_adds_score_overlay(tmp_path: Path, monkeypatc
     assert "trim=start=1.000:end=2.000" in filter_graph
     assert "trim=start=3.000:end=4.000" not in filter_graph
     assert "concat=n=1" in filter_graph
+
+
+def test_render_cuts_video_only_when_the_source_has_no_audio(tmp_path: Path, monkeypatch) -> None:
+    timeline = tmp_path / "rallies.csv"
+    timeline.write_text("rally,start_seconds,end_seconds\n1,1,2\n2,3,4\n", encoding="utf-8")
+    commands: list[list[str]] = []
+    monkeypatch.setattr("smart_badminton.render.resolve_ffmpeg", lambda _path=None: Path("ffmpeg"))
+    monkeypatch.setattr("smart_badminton.render.has_audio_stream", lambda _ffmpeg, _video: False)
+    monkeypatch.setattr("smart_badminton.encoding.available_ffmpeg_encoders", lambda _path=None: {"libx264"})
+    monkeypatch.setattr("smart_badminton.encoding.run_ffmpeg", commands.append)
+
+    render_rallies(tmp_path / "silent.mp4", timeline, tmp_path / "edited.mp4", encoder="libx264")
+
+    command = commands[0]
+    filter_graph = command[command.index("-filter_complex") + 1]
+    assert "[0:a:0]" not in filter_graph
+    assert filter_graph.endswith("[v0][v1]concat=n=2:v=1:a=0[vout]")
+    assert "-an" in command
+    assert "[aout]" not in command
+
+
+def _synthetic_clip(path: Path, with_audio: bool) -> Path:
+    ffmpeg = imageio_ffmpeg.get_ffmpeg_exe()
+    command = [ffmpeg, "-y", "-loglevel", "error", "-f", "lavfi", "-i", "testsrc=size=320x180:rate=30:duration=2"]
+    if with_audio:
+        command += ["-f", "lavfi", "-i", "sine=frequency=440:duration=2", "-c:a", "aac", "-shortest"]
+    subprocess.run([*command, "-c:v", "libx264", "-pix_fmt", "yuv420p", str(path)], check=True)
+    return path
+
+
+def test_render_real_ffmpeg_with_and_without_source_audio(tmp_path: Path) -> None:
+    ffmpeg = Path(imageio_ffmpeg.get_ffmpeg_exe())
+    timeline = tmp_path / "rallies.csv"
+    timeline.write_text("rally,start_seconds,end_seconds\n1,0.1,0.9\n2,1.2,1.8\n", encoding="utf-8")
+
+    for with_audio in (False, True):
+        source = _synthetic_clip(tmp_path / f"source-{with_audio}.mp4", with_audio)
+        output = tmp_path / f"edited-{with_audio}.mp4"
+        assert has_audio_stream(ffmpeg, source) is with_audio
+
+        render_rallies(source, timeline, output, ffmpeg=ffmpeg, encoder="libx264")
+
+        assert output.stat().st_size > 0
+        assert has_audio_stream(ffmpeg, output) is with_audio
