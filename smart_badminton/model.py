@@ -8,6 +8,7 @@ from pathlib import Path
 import joblib
 import numpy as np
 import pandas as pd
+import sklearn
 from sklearn.ensemble import ExtraTreesClassifier, HistGradientBoostingClassifier, RandomForestClassifier
 from sklearn.linear_model import LogisticRegression
 from sklearn.metrics import classification_report, precision_recall_fscore_support
@@ -227,6 +228,7 @@ def train_model(
             "sample_fps": sample_fps,
             "model_family": model_family,
             "rally_gap_profile": gap_profile,
+            "sklearn_version": sklearn.__version__,
         },
         model_path,
     )
@@ -455,6 +457,7 @@ def train_multi_model(
             "training_sources": [source["id"] for source in loaded],
             "dataset": str(dataset_path),
             "rally_gap_profile": gap_profile,
+            "sklearn_version": sklearn.__version__,
         },
         model_path,
     )
@@ -487,9 +490,23 @@ def train_multi_model(
     return report
 
 
+def load_model_bundle(model_path: Path) -> dict:
+    """Load a pickled rally-state bundle, explaining scikit-learn incompatibility instead of a bare import error.
+
+    A readable but version-mismatched bundle still loads; scikit-learn itself warns with InconsistentVersionWarning.
+    """
+    try:
+        return joblib.load(model_path)
+    except (AttributeError, ModuleNotFoundError) as error:
+        raise RuntimeError(
+            f"{model_path.name} cannot be loaded by scikit-learn {sklearn.__version__} ({error}). "
+            "Install the scikit-learn range pinned in pyproject.toml; see models/MODEL_CARD.md."
+        ) from error
+
+
 def predict_model(features_csv: Path, model_path: Path, output_csv: Path) -> None:
     frame = pd.read_csv(features_csv)
-    bundle = joblib.load(model_path)
+    bundle = load_model_bundle(model_path)
     matrix = build_feature_matrix(frame, float(bundle["sample_fps"]))
     for name in bundle["feature_names"]:
         if name not in matrix:

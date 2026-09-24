@@ -55,13 +55,12 @@ def test_all_runtime_encoder_failures_are_reported_and_partial_output_removed(tm
         lambda _requested, _ffmpeg=None: (["h264_nvenc", "h264_qsv"], None),
     )
 
-    def fail(command: list[str], check: bool) -> None:
-        assert check is True
+    def fail(command: list[str]) -> None:
         commands.append(command)
         output.write_bytes(b"partial")
-        raise subprocess.CalledProcessError(1, command)
+        raise subprocess.CalledProcessError(1, command, stderr="frame=  1\rError binding filtergraph: Invalid argument\n")
 
-    monkeypatch.setattr(encoding.subprocess, "run", fail)
+    monkeypatch.setattr(encoding, "run_ffmpeg", fail)
 
     try:
         encoding.run_ffmpeg_with_encoder_fallback(
@@ -72,6 +71,7 @@ def test_all_runtime_encoder_failures_are_reported_and_partial_output_removed(tm
         )
     except RuntimeError as error:
         assert "h264_nvenc, h264_qsv" in str(error)
+        assert str(error).endswith("Error binding filtergraph: Invalid argument")
     else:
         raise AssertionError("Expected every encoder to fail")
 

@@ -10,6 +10,9 @@ combines that probability with motion, pose, audio and optional shuttle evidence
 - Training data: five human-reviewed fixed-camera recordings
 - License: Apache-2.0
 - SHA-256: `baa9f5c6bf1c82f5f46b37a6ebf71de14cec3b013f07ff792556f01f5ca295d5`
+- Trained with: scikit-learn 1.6.0, NumPy 1.26
+- Verified runtimes: scikit-learn 1.6.0–1.8.0 with NumPy 1.26–2.4 give bit-identical probabilities. scikit-learn 1.9
+  can no longer unpickle this checkpoint, so `pyproject.toml` pins `scikit-learn>=1.6,<1.9`.
 
 The private source videos and annotations are not included. The artifact metadata contains no local file paths or
 reviewed timestamps.

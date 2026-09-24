@@ -2,9 +2,12 @@ from __future__ import annotations
 
 import tempfile
 from contextlib import nullcontext
+from fractions import Fraction
 from pathlib import Path
 
-from .encoding import h264_encoding_arguments, run_ffmpeg_with_encoder_fallback
+import cv2
+
+from .encoding import h264_encoding_arguments, has_audio_stream, run_ffmpeg_with_encoder_fallback
 from .io import read_rows, resolve_ffmpeg
 from .score_overlay import create_score_ass
 from .trajectory_overlay import create_trajectory_ass
@@ -13,6 +16,17 @@ from .trajectory_overlay import create_trajectory_ass
 def _ffmpeg_filter_path(path: Path) -> str:
     value = path.resolve().as_posix().replace("\\", "/")
     return value.replace(":", r"\:").replace("'", r"\'")
+
+
+def _source_frame_rate(video: Path) -> str | None:
+    """Return the source frame rate as an exact FFmpeg rational, e.g. 30000/1001 for 29.97 fps."""
+    capture = cv2.VideoCapture(str(video))
+    fps = float(capture.get(cv2.CAP_PROP_FPS)) if capture.isOpened() else 0.0
+    capture.release()
+    if not fps > 0:
+        return None
+    rate = Fraction(fps).limit_denominator(1001)
+    return f"{rate.numerator}/{rate.denominator}"
 
 
 def render_rallies(
@@ -49,6 +63,9 @@ def render_rallies(
     if include_score and score_csv is None:
         raise ValueError("Score data is required for the score overlay")
     output.parent.mkdir(parents=True, exist_ok=True)
+    ffmpeg_path = resolve_ffmpeg(ffmpeg)
+    # Some cameras and screen recordings have no audio track; cut those as video-only instead of failing.
+    audio = has_audio_stream(ffmpeg_path, video)
     needs_overlays = trajectory_csv is not None or include_score
     temporary_context = (
         tempfile.TemporaryDirectory(prefix=".render-overlays-", dir=output.parent)
@@ -80,8 +97,10 @@ def render_rallies(
                 raise ValueError(f"Invalid rally {row.get('rally', index + 1)}")
             video_input = f"[marked{index}]" if overlay_filters else "[0:v:0]"
             filters.append(f"{video_input}trim=start={start:.3f}:end={end:.3f},setpts=PTS-STARTPTS[v{index}]")
-            filters.append(f"[0:a:0]atrim=start={start:.3f}:end={end:.3f},asetpts=PTS-STARTPTS[a{index}]")
-            inputs.append(f"[v{index}][a{index}]")
+            inputs.append(f"[v{index}]")
+            if audio:
+                filters.append(f"[0:a:0]atrim=start={start:.3f}:end={end:.3f},asetpts=PTS-STARTPTS[a{index}]")
+                inputs.append(f"[a{index}]")
         video_filters = []
         if output_width is not None or output_height is not None:
             if not output_width or not output_height:
@@ -92,12 +111,15 @@ def render_rallies(
             if output_fps <= 0:
                 raise ValueError("Output FPS must be positive")
             video_filters.append(f"fps={output_fps:.6f}")
+        elif source_rate := _source_frame_rate(video):
+            # trim/concat drop the stream's frame rate, and FFmpeg would then fall back to 25 fps and drop frames.
+            video_filters.append(f"fps={source_rate}")
+        concat_video = "[vcat]" if video_filters else "[vout]"
+        concat = f"concat=n={len(rows)}:v=1:a={int(audio)}{concat_video}{'[aout]' if audio else ''}"
+        filters.append("".join(inputs) + concat)
         if video_filters:
-            filters.append("".join(inputs) + f"concat=n={len(rows)}:v=1:a=1[vcat][aout]")
             filters.append(f"[vcat]{','.join(video_filters)}[vout]")
-        else:
-            filters.append("".join(inputs) + f"concat=n={len(rows)}:v=1:a=1[vout][aout]")
-        ffmpeg_path = resolve_ffmpeg(ffmpeg)
+        audio_arguments = ["-map", "[aout]", "-c:a", "aac", "-b:a", "192k"] if audio else ["-an"]
 
         def command_for(video_encoder: str) -> list[str]:
             command = [
@@ -110,10 +132,8 @@ def render_rallies(
                 ";".join(filters),
                 "-map",
                 "[vout]",
-                "-map",
-                "[aout]",
                 *h264_encoding_arguments(video_encoder, quality, "final"),
             ]
-            return command + ["-c:a", "aac", "-b:a", "192k", "-movflags", "+faststart", str(output)]
+            return command + [*audio_arguments, "-movflags", "+faststart", str(output)]
 
         return run_ffmpeg_with_encoder_fallback(ffmpeg_path, encoder, command_for, output)

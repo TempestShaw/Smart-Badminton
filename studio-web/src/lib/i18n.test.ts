@@ -31,6 +31,9 @@ describe("Studio language selection", () => {
     expect(translateMessage("正在运行 Hybrid 羽球检测")).toBe("Running Hybrid shuttle detection");
     expect(translateMessage("背景排除区 2")).toBe("Background exclusion 2");
     expect(translateMessage("Practice-court.mp4")).toBe("Practice-court.mp4");
+    expect(translateMessage("这些视频没有音轨，无法自动分析：a.mp4、b.mp4")).toBe(
+      "These videos have no audio track and cannot be analyzed automatically: a.mp4、b.mp4",
+    );
     await i18n.changeLanguage("zh");
     expect(translateMessage("Analyzing frames: 42%")).toBe("分析画面 42%");
     expect(translateMessage("Background exclusion 2")).toBe("背景排除区 2");

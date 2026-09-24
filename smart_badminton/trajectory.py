@@ -80,7 +80,8 @@ def _axis_proximity_score(
         direction = second - first
         length = float(np.linalg.norm(direction))
         if length > 1e-6:
-            distance = abs(float(np.cross(direction, point - first))) / length
+            offset = point - first
+            distance = abs(float(direction[0] * offset[1] - direction[1] * offset[0])) / length
             return float(np.clip(1.0 - distance / 0.32, -1.0, 1.0))
     return float(np.clip(1.0 - abs(float(point[0]) - 0.5) / 0.36, -1.0, 1.0))
 

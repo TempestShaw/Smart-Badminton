@@ -12,6 +12,7 @@ import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import type { StudioController } from "@/hooks/use-studio-controller";
 import type { ScoreCorrection, ScoreSuggestion } from "@/types/studio";
 
@@ -195,5 +196,12 @@ const terminalLabels: Record<string, string> = { landing_in: "界内", landing_o
 
 function OutcomeSelect({ label, value, options, disabled, onChange }: { label: string; value: string; options: ReadonlyArray<readonly [string, string]>; disabled: boolean; onChange: (value: string) => void }) {
   useTranslation();
-  return <label>{label}<select value={value} disabled={disabled} onChange={(event) => onChange(event.target.value)}>{options.map(([option, text]) => <option key={option} value={option}>{t(text)}</option>)}</select></label>;
+  return (
+    <label>{label}
+      <Select value={value} disabled={disabled} onValueChange={onChange}>
+        <SelectTrigger size="sm" aria-label={label}><SelectValue /></SelectTrigger>
+        <SelectContent>{options.map(([option, text]) => <SelectItem key={option} value={option}>{t(text)}</SelectItem>)}</SelectContent>
+      </Select>
+    </label>
+  );
 }

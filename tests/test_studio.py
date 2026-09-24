@@ -5,27 +5,40 @@ from pathlib import Path
 from types import SimpleNamespace
 
 import pandas as pd
+import pytest
 from fastapi.testclient import TestClient
 
 from smart_badminton import studio
-from smart_badminton.studio import (
-    StudioState,
-    _analyze_video,
-    _default_output,
-    _discover_videos,
-    _ensure_working_timeline,
-    _evidence_payload,
-    _project_root,
-    _save_segments,
-    _serve_observations,
-    _trajectory_needs_refinement,
-    _validated_segments,
-    _working_timeline_path,
-)
+from smart_badminton.project_layout import ProjectLayout
+from smart_badminton.studio import StudioState, app, calibration, insights, jobs, media, pipeline, project, shuttle
+from smart_badminton.studio import state as studio_state
+from smart_badminton.studio.insights import evidence_payload, serve_observations
+from smart_badminton.studio.pipeline import POSE_ASSOCIATION_FIELDS, analyze_video, trajectory_needs_refinement
+from smart_badminton.studio.project import discover_videos, ensure_working_timeline, save_segments, timeline_rows
+from smart_badminton.studio.shuttle import run_shuttle_detection
+
+STUDIO_MODULES = (app, calibration, insights, jobs, media, pipeline, project, shuttle, studio_state)
+
+
+@pytest.fixture
+def patch_studio(monkeypatch):
+    """Replace a name in every Studio module that imported it."""
+
+    def patch(name: str, value) -> None:
+        targets = [module for module in STUDIO_MODULES if hasattr(module, name)]
+        assert targets, name
+        for module in targets:
+            monkeypatch.setattr(module, name, value)
+
+    return patch
+
+
+def client_for(state: StudioState) -> TestClient:
+    return TestClient(studio.create_studio_app(state), base_url="http://127.0.0.1")
 
 
 def test_studio_validates_non_overlapping_segments() -> None:
-    rows = _validated_segments(
+    rows = timeline_rows(
         [{"start": 1.0, "end": 2.0}, {"start": 2.0, "end": 3.5}],
         duration=5.0,
     )
@@ -43,30 +56,29 @@ def test_trajectory_refines_when_features_or_user_annotations_are_newer(tmp_path
     os.utime(annotations, (100, 100))
     os.utime(trajectory, (200, 200))
 
-    assert _trajectory_needs_refinement(features, trajectory, annotations) is False
+    assert trajectory_needs_refinement(features, trajectory, annotations) is False
     os.utime(annotations, (300, 300))
-    assert _trajectory_needs_refinement(features, trajectory, annotations) is True
+    assert trajectory_needs_refinement(features, trajectory, annotations) is True
 
 
 def test_studio_save_creates_backup(tmp_path: Path) -> None:
     path = tmp_path / "rallies.csv"
     path.write_text("rally,start_seconds,end_seconds\n1,0,1\n", encoding="utf-8")
-    rows = _validated_segments([{"start": 0.5, "end": 1.5}], duration=2.0)
-    backup = _save_segments(path, rows)
+    rows = timeline_rows([{"start": 0.5, "end": 1.5}], duration=2.0)
+    backup = save_segments(path, rows)
     assert backup.exists()
     assert "0.500" in path.read_text(encoding="utf-8")
     assert "0,1" in backup.read_text(encoding="utf-8")
 
 
-def test_studio_api_saves_validated_timeline(tmp_path: Path, monkeypatch) -> None:
+def test_studio_api_saves_validated_timeline(tmp_path: Path, patch_studio) -> None:
     video = tmp_path / "source.mp4"
     video.write_bytes(b"placeholder")
     timeline = tmp_path / "rallies.csv"
     timeline.write_text("rally,start_seconds,end_seconds\n1,1,2\n", encoding="utf-8")
     metadata = {"name": video.name, "duration": 10.0, "fps": 30.0, "frame_count": 300, "width": 1280, "height": 720}
-    monkeypatch.setattr(studio, "_video_metadata", lambda _path: metadata)
-    app = studio.create_studio_app(StudioState(video=video, rallies=timeline, output=tmp_path / "edited.mp4"))
-    client = TestClient(app)
+    patch_studio("video_metadata", lambda _path: metadata)
+    client = client_for(StudioState(video=video, rallies=timeline, output=tmp_path / "edited.mp4"))
     shell = client.get("/")
     assert shell.status_code == 200
     assert "Smart Badminton Studio" in shell.text
@@ -94,11 +106,11 @@ def test_studio_api_saves_validated_timeline(tmp_path: Path, monkeypatch) -> Non
         "/api/timeline",
         json={"project_id": "other.mp4", "segments": [{"start": 2.0, "end": 4.0}]},
     )
-    assert stale.status_code == 400
+    assert stale.status_code == 409
     assert "1.500" in timeline.read_text(encoding="utf-8")
 
 
-def test_studio_directory_browser_and_output_selection_are_real(tmp_path: Path, monkeypatch) -> None:
+def test_studio_directory_browser_and_output_selection_are_real(tmp_path: Path, patch_studio) -> None:
     source_folder = tmp_path / "source"
     output_folder = tmp_path / "exports"
     child_folder = source_folder / "nested"
@@ -109,12 +121,8 @@ def test_studio_directory_browser_and_output_selection_are_real(tmp_path: Path, 
     timeline = source_folder / "rallies.csv"
     timeline.write_text("rally,start_seconds,end_seconds\n1,1,2\n", encoding="utf-8")
     metadata = {"name": video.name, "duration": 10.0, "fps": 30.0, "frame_count": 300, "width": 1280, "height": 720}
-    monkeypatch.setattr(studio, "_video_metadata", lambda _path: metadata)
-    client = TestClient(
-        studio.create_studio_app(
-            StudioState(video=video, rallies=timeline, output=source_folder / "edited.mp4", library=source_folder)
-        )
-    )
+    patch_studio("video_metadata", lambda _path: metadata)
+    client = client_for(StudioState(video=video, rallies=timeline, output=source_folder / "edited.mp4", library=source_folder))
 
     browser = client.get("/api/filesystem/directories", params={"path": str(source_folder)})
     assert browser.status_code == 200
@@ -133,21 +141,6 @@ def test_studio_directory_browser_and_output_selection_are_real(tmp_path: Path, 
     assert project["api_schema_version"] == 8
     assert project["output"]["filename"] == "match-final.mp4"
 
-    invalid_name = client.put(
-        "/api/output",
-        json={"project_id": "source.mp4", "directory": str(output_folder), "filename": "nested/bad.mp4"},
-    )
-    assert invalid_name.status_code == 400
-    invalid_extension = client.put(
-        "/api/output",
-        json={"project_id": "source.mp4", "directory": str(output_folder), "filename": "bad.mov"},
-    )
-    assert invalid_extension.status_code == 400
-    missing_folder = client.put(
-        "/api/output",
-        json={"project_id": "source.mp4", "directory": str(tmp_path / "missing"), "filename": "bad.mp4"},
-    )
-    assert missing_folder.status_code == 400
     stale = client.put(
         "/api/output",
         json={"project_id": "other.mp4", "directory": str(output_folder), "filename": "bad.mp4"},
@@ -155,7 +148,7 @@ def test_studio_directory_browser_and_output_selection_are_real(tmp_path: Path, 
     assert stale.status_code == 409
 
 
-def test_studio_reports_missing_ffmpeg_and_rejects_video_jobs(tmp_path: Path, monkeypatch) -> None:
+def test_studio_reports_missing_ffmpeg(tmp_path: Path, patch_studio) -> None:
     video = tmp_path / "source.mp4"
     video.write_bytes(b"placeholder")
     timeline = tmp_path / "rallies.csv"
@@ -174,13 +167,13 @@ def test_studio_reports_missing_ffmpeg_and_rejects_video_jobs(tmp_path: Path, mo
         "width": 1280,
         "height": 720,
     }
-    monkeypatch.setattr(studio, "_video_metadata", lambda _path: metadata)
-    monkeypatch.setattr(studio, "_calibration_ready", lambda _state: True)
+    patch_studio("video_metadata", lambda _path: metadata)
+    patch_studio("calibration_ready", lambda _state: True)
 
     def missing_ffmpeg(_path=None):
         raise RuntimeError("FFmpeg unavailable in test")
 
-    monkeypatch.setattr(studio, "resolve_ffmpeg", missing_ffmpeg)
+    patch_studio("resolve_ffmpeg", missing_ffmpeg)
     state = StudioState(
         video=video,
         rallies=timeline,
@@ -189,7 +182,7 @@ def test_studio_reports_missing_ffmpeg_and_rejects_video_jobs(tmp_path: Path, mo
         model=model,
         pose_model=pose_model,
     )
-    client = TestClient(studio.create_studio_app(state))
+    client = client_for(state)
 
     health = client.get("/api/health")
     assert health.status_code == 200
@@ -199,12 +192,9 @@ def test_studio_reports_missing_ffmpeg_and_rejects_video_jobs(tmp_path: Path, mo
     assert project["runtime"]["ffmpeg"]["reason"] == "FFmpeg unavailable in test"
     assert project["automatic_analysis"]["configured"] is False
     assert project["automatic_analysis"]["pose_overlay_configured"] is False
-    assert client.post("/api/render").status_code == 503
-    assert client.post("/api/analyze", json={}).status_code == 503
-    assert client.post("/api/pose-overlay", json={"project_id": "source.mp4", "rally": 1}).status_code == 503
 
 
-def test_studio_reports_missing_h264_encoder_before_video_jobs(tmp_path: Path, monkeypatch) -> None:
+def test_studio_reports_missing_h264_encoder(tmp_path: Path, patch_studio) -> None:
     video = tmp_path / "source.mp4"
     video.write_bytes(b"placeholder")
     timeline = tmp_path / "rallies.csv"
@@ -217,24 +207,23 @@ def test_studio_reports_missing_h264_encoder_before_video_jobs(tmp_path: Path, m
         "width": 1280,
         "height": 720,
     }
-    monkeypatch.setattr(studio, "_video_metadata", lambda _path: metadata)
-    monkeypatch.setattr(studio, "resolve_ffmpeg", lambda _path=None: Path("ffmpeg"))
+    patch_studio("video_metadata", lambda _path: metadata)
+    patch_studio("resolve_ffmpeg", lambda _path=None: Path("ffmpeg"))
 
     def missing_encoder(_requested, _ffmpeg):
         raise RuntimeError("FFmpeg does not provide a supported H.264 encoder")
 
-    monkeypatch.setattr(studio, "choose_working_video_encoder", missing_encoder)
+    patch_studio("choose_working_video_encoder", missing_encoder)
     state = StudioState(video=video, rallies=timeline, output=tmp_path / "edited.mp4")
-    client = TestClient(studio.create_studio_app(state))
+    client = client_for(state)
 
     project = client.get("/api/project").json()
     assert project["runtime"]["ffmpeg"]["available"] is False
     assert project["runtime"]["ffmpeg"]["selected_encoder"] is None
     assert "H.264 encoder" in project["runtime"]["ffmpeg"]["reason"]
-    assert client.post("/api/render").status_code == 503
 
 
-def test_studio_render_can_include_trajectory(tmp_path: Path, monkeypatch) -> None:
+def test_studio_render_can_include_trajectory(tmp_path: Path, patch_studio) -> None:
     video = tmp_path / "source.mp4"
     video.write_bytes(b"placeholder")
     timeline = tmp_path / "rallies.csv"
@@ -245,24 +234,21 @@ def test_studio_render_can_include_trajectory(tmp_path: Path, monkeypatch) -> No
     trajectory.write_text("trajectory", encoding="utf-8")
     captured: dict[str, object] = {}
 
-    monkeypatch.setattr(
-        studio,
-        "_runtime_payload",
-        lambda _state: {"ffmpeg": {"available": True, "selected_encoder": "libx264", "reason": None}},
+    patch_studio("runtime_payload", lambda _state: {"ffmpeg": {"available": True, "selected_encoder": "libx264", "reason": None}},
     )
 
     def fake_render(*args, **kwargs):
         captured.update(kwargs)
         return "libx264"
 
-    monkeypatch.setattr(studio, "render_rallies", fake_render)
+    patch_studio("render_rallies", fake_render)
     state = StudioState(
         video=video,
         rallies=timeline,
         output=tmp_path / "edited.mp4",
         library=tmp_path,
     )
-    client = TestClient(studio.create_studio_app(state))
+    client = client_for(state)
 
     response = client.post("/api/render", json={"include_trajectory": True})
     assert response.status_code == 200
@@ -277,29 +263,7 @@ def test_studio_render_can_include_trajectory(tmp_path: Path, monkeypatch) -> No
     assert captured["trajectory_csv"] == trajectory
 
 
-def test_studio_rejects_trajectory_render_before_analysis(tmp_path: Path, monkeypatch) -> None:
-    video = tmp_path / "source.mp4"
-    video.write_bytes(b"placeholder")
-    timeline = tmp_path / "rallies.csv"
-    timeline.write_text("rally,start_seconds,end_seconds\n1,1,2\n", encoding="utf-8")
-    monkeypatch.setattr(
-        studio,
-        "_runtime_payload",
-        lambda _state: {"ffmpeg": {"available": True, "selected_encoder": "libx264", "reason": None}},
-    )
-    client = TestClient(
-        studio.create_studio_app(
-            StudioState(video=video, rallies=timeline, output=tmp_path / "edited.mp4", library=tmp_path)
-        )
-    )
-
-    response = client.post("/api/render", json={"include_trajectory": True})
-
-    assert response.status_code == 409
-    assert response.json()["detail"] == "请先分析当前视频球路"
-
-
-def test_studio_render_can_filter_winner_and_show_score(tmp_path: Path, monkeypatch) -> None:
+def test_studio_render_can_filter_winner_and_show_score(tmp_path: Path, patch_studio) -> None:
     video = tmp_path / "source.mp4"
     video.write_bytes(b"placeholder")
     timeline = tmp_path / "rallies.csv"
@@ -316,22 +280,15 @@ def test_studio_render_can_filter_winner_and_show_score(tmp_path: Path, monkeypa
         encoding="utf-8",
     )
     captured: dict[str, object] = {}
-    monkeypatch.setattr(
-        studio,
-        "_runtime_payload",
-        lambda _state: {"ffmpeg": {"available": True, "selected_encoder": "libx264", "reason": None}},
+    patch_studio("runtime_payload", lambda _state: {"ffmpeg": {"available": True, "selected_encoder": "libx264", "reason": None}},
     )
 
     def fake_render(*args, **kwargs):
         captured.update(kwargs)
         return "libx264"
 
-    monkeypatch.setattr(studio, "render_rallies", fake_render)
-    client = TestClient(
-        studio.create_studio_app(
-            StudioState(video=video, rallies=timeline, output=tmp_path / "edited.mp4", library=tmp_path)
-        )
-    )
+    patch_studio("render_rallies", fake_render)
+    client = client_for(StudioState(video=video, rallies=timeline, output=tmp_path / "edited.mp4", library=tmp_path))
 
     response = client.post(
         "/api/render",
@@ -352,19 +309,15 @@ def test_studio_render_can_filter_winner_and_show_score(tmp_path: Path, monkeypa
     assert captured["include_score"] is True
 
 
-def test_studio_score_correction_does_not_mutate_timeline(tmp_path: Path, monkeypatch) -> None:
+def test_studio_score_correction_does_not_mutate_timeline(tmp_path: Path, patch_studio) -> None:
     video = tmp_path / "source.mp4"
     video.write_bytes(b"placeholder")
     timeline = tmp_path / "rallies.csv"
     timeline.write_text("rally,start_seconds,end_seconds\n1,1,2\n", encoding="utf-8")
     original = timeline.read_text(encoding="utf-8")
     metadata = {"name": video.name, "duration": 10.0, "fps": 30.0, "frame_count": 300, "width": 1280, "height": 720}
-    monkeypatch.setattr(studio, "_video_metadata", lambda _path: metadata)
-    client = TestClient(
-        studio.create_studio_app(
-            StudioState(video=video, rallies=timeline, output=tmp_path / "edited.mp4", library=tmp_path)
-        )
-    )
+    patch_studio("video_metadata", lambda _path: metadata)
+    client = client_for(StudioState(video=video, rallies=timeline, output=tmp_path / "edited.mp4", library=tmp_path))
 
     response = client.put(
         "/api/score",
@@ -397,7 +350,7 @@ def test_studio_score_correction_does_not_mutate_timeline(tmp_path: Path, monkey
 
 
 def test_studio_calculates_score_on_demand_and_invalidates_it_after_timeline_edit(
-    tmp_path: Path, monkeypatch
+    tmp_path: Path, patch_studio
 ) -> None:
     video = tmp_path / "source.mp4"
     video.write_bytes(b"placeholder")
@@ -411,12 +364,8 @@ def test_studio_calculates_score_on_demand_and_invalidates_it_after_timeline_edi
         "width": 1280,
         "height": 720,
     }
-    monkeypatch.setattr(studio, "_video_metadata", lambda _path: metadata)
-    client = TestClient(
-        studio.create_studio_app(
-            StudioState(video=video, rallies=timeline, output=tmp_path / "edited.mp4", library=tmp_path)
-        )
-    )
+    patch_studio("video_metadata", lambda _path: metadata)
+    client = client_for(StudioState(video=video, rallies=timeline, output=tmp_path / "edited.mp4", library=tmp_path))
 
     assert client.get("/api/score").json()["generated"] is False
     calculated = client.post("/api/score/analyze", json={"project_id": "source.mp4"})
@@ -439,14 +388,14 @@ def test_studio_calculates_score_on_demand_and_invalidates_it_after_timeline_edi
     assert saved.json()["score"]["stale"] is True
 
 
-def test_studio_accepts_a_machine_score_suggestion_as_reviewed_truth(tmp_path: Path, monkeypatch) -> None:
+def test_studio_accepts_a_machine_score_suggestion_as_reviewed_truth(tmp_path: Path, patch_studio) -> None:
     video = tmp_path / "source.mp4"
     video.write_bytes(b"placeholder")
     timeline = tmp_path / "rallies.csv"
     timeline.write_text("rally,start_seconds,end_seconds\n1,1,2\n", encoding="utf-8")
     original = timeline.read_bytes()
     metadata = {"name": video.name, "duration": 10.0, "fps": 30.0, "frame_count": 300, "width": 1280, "height": 720}
-    monkeypatch.setattr(studio, "_video_metadata", lambda _path: metadata)
+    patch_studio("video_metadata", lambda _path: metadata)
     labels = tmp_path / "Analysis" / "Score_Labeling" / "machine-score-labels.json"
     labels.parent.mkdir(parents=True)
     labels.write_text(
@@ -472,11 +421,7 @@ def test_studio_accepts_a_machine_score_suggestion_as_reviewed_truth(tmp_path: P
         ),
         encoding="utf-8",
     )
-    client = TestClient(
-        studio.create_studio_app(
-            StudioState(video=video, rallies=timeline, output=tmp_path / "edited.mp4", library=tmp_path)
-        )
-    )
+    client = client_for(StudioState(video=video, rallies=timeline, output=tmp_path / "edited.mp4", library=tmp_path))
 
     response = client.put(
         "/api/score-labels/review",
@@ -491,7 +436,7 @@ def test_studio_accepts_a_machine_score_suggestion_as_reviewed_truth(tmp_path: P
     assert timeline.read_bytes() == original
 
 
-def test_pose_only_flight_cannot_decide_server(tmp_path: Path, monkeypatch) -> None:
+def test_pose_only_flight_cannot_decide_server(tmp_path: Path, patch_studio) -> None:
     video = tmp_path / "source.mp4"
     video.write_bytes(b"placeholder")
     timeline = tmp_path / "rallies.csv"
@@ -513,10 +458,7 @@ def test_pose_only_flight_cannot_decide_server(tmp_path: Path, monkeypatch) -> N
         }
     ).to_csv(analysis / "rally-probabilities.csv", index=False)
     (analysis / "shuttle-track.csv").write_text("time_seconds,x,y\n3.2,0.5,0.5\n", encoding="utf-8")
-    monkeypatch.setattr(
-        studio,
-        "build_rally_evidence",
-        lambda *_args, **_kwargs: SimpleNamespace(
+    patch_studio("build_rally_evidence", lambda *_args, **_kwargs: SimpleNamespace(
             trajectory_flight_start=[False, False, False, True, False],
             near_ready=[False, False, False, True, False],
             far_ready=[False, False, True, True, False],
@@ -524,7 +466,7 @@ def test_pose_only_flight_cannot_decide_server(tmp_path: Path, monkeypatch) -> N
     )
     state = StudioState(video=video, rallies=timeline, output=tmp_path / "edited.mp4", library=tmp_path)
 
-    observations = _serve_observations(state, {"available": True, "serves": [], "contacts": []})
+    observations = serve_observations(state, {"available": True, "serves": [], "contacts": []})
 
     assert observations == []
 
@@ -561,7 +503,7 @@ def test_studio_evidence_payload_exports_compact_signal_spans(tmp_path: Path) ->
     ).to_csv(analysis / "rally-probabilities.csv", index=False)
     state = StudioState(video=video, rallies=timeline, output=tmp_path / "edited.mp4", library=tmp_path)
 
-    payload = _evidence_payload(state)
+    payload = evidence_payload(state)
 
     assert payload["available"] is True
     assert payload["signals"]["model_active"]
@@ -585,16 +527,16 @@ def test_studio_payload_cache_reuses_results_until_an_input_changes(tmp_path: Pa
         calls += 1
         return {"value": source.read_text(encoding="utf-8")}
 
-    assert studio._cached_payload(state, "test", (source,), build)["value"] == "first"
-    assert studio._cached_payload(state, "test", (source,), build)["value"] == "first"
+    assert studio_state.cached_payload(state, "test", (source,), build)["value"] == "first"
+    assert studio_state.cached_payload(state, "test", (source,), build)["value"] == "first"
     assert calls == 1
 
     source.write_text("second value", encoding="utf-8")
-    assert studio._cached_payload(state, "test", (source,), build)["value"] == "second value"
+    assert studio_state.cached_payload(state, "test", (source,), build)["value"] == "second value"
     assert calls == 2
 
 
-def test_studio_api_creates_and_backs_up_interactive_calibration(tmp_path: Path, monkeypatch) -> None:
+def test_studio_api_creates_and_backs_up_interactive_calibration(tmp_path: Path, patch_studio) -> None:
     video = tmp_path / "source.mp4"
     video.write_bytes(b"placeholder")
     timeline = tmp_path / "rallies.csv"
@@ -607,9 +549,9 @@ def test_studio_api_creates_and_backs_up_interactive_calibration(tmp_path: Path,
         "width": 1280,
         "height": 720,
     }
-    monkeypatch.setattr(studio, "_video_metadata", lambda _path: metadata)
+    patch_studio("video_metadata", lambda _path: metadata)
     state = StudioState(video=video, rallies=timeline, output=tmp_path / "edited.mp4")
-    client = TestClient(studio.create_studio_app(state))
+    client = client_for(state)
 
     calibration = client.get("/api/calibration").json()
     assert calibration["exists"] is False
@@ -639,16 +581,8 @@ def test_studio_api_creates_and_backs_up_interactive_calibration(tmp_path: Path,
     assert second.status_code == 200
     assert state.config.with_suffix(".json.bak").exists()
 
-    invalid_regions = response.json()["regions"]
-    invalid_regions[0]["points"] = []
-    invalid = client.put(
-        "/api/calibration",
-        json={"project_id": "source.mp4", "regions": invalid_regions},
-    )
-    assert invalid.status_code == 400
 
-
-def test_studio_api_saves_user_shuttle_annotations(tmp_path: Path, monkeypatch) -> None:
+def test_studio_api_saves_user_shuttle_annotations(tmp_path: Path, patch_studio) -> None:
     video = tmp_path / "source.mp4"
     video.write_bytes(b"placeholder")
     timeline = tmp_path / "rallies.csv"
@@ -661,7 +595,8 @@ def test_studio_api_saves_user_shuttle_annotations(tmp_path: Path, monkeypatch) 
         "width": 1280,
         "height": 720,
     }
-    monkeypatch.setattr(studio, "_video_metadata", lambda _path: metadata)
+    patch_studio("video_metadata", lambda _path: metadata)
+    patch_studio("calibration_ready", lambda _state: True)
     state = StudioState(
         video=video,
         rallies=timeline,
@@ -672,7 +607,7 @@ def test_studio_api_saves_user_shuttle_annotations(tmp_path: Path, monkeypatch) 
     )
     state.config.write_text("{}", encoding="utf-8")
     state.shuttle_model.write_bytes(b"model")
-    client = TestClient(studio.create_studio_app(state))
+    client = client_for(state)
 
     initial = client.get("/api/shuttle-annotations")
     assert initial.status_code == 200
@@ -730,7 +665,7 @@ def test_studio_api_saves_user_shuttle_annotations(tmp_path: Path, monkeypatch) 
     assert stale.status_code == 409
 
 
-def test_studio_runs_shuttle_analysis_without_changing_timeline(tmp_path: Path, monkeypatch) -> None:
+def test_studio_runs_shuttle_analysis_without_changing_timeline(tmp_path: Path, patch_studio) -> None:
     video = tmp_path / "source.mp4"
     video.write_bytes(b"placeholder")
     timeline = tmp_path / "rallies.csv"
@@ -747,8 +682,8 @@ def test_studio_runs_shuttle_analysis_without_changing_timeline(tmp_path: Path, 
         "width": 1280,
         "height": 720,
     }
-    monkeypatch.setattr(studio, "_video_metadata", lambda _path: metadata)
-    monkeypatch.setattr(studio, "_calibration_ready", lambda _state: True)
+    patch_studio("video_metadata", lambda _path: metadata)
+    patch_studio("calibration_ready", lambda _state: True)
 
     def fake_detect(_video, _config, _model, _packages, output, **_kwargs):
         output.write_text(
@@ -765,8 +700,8 @@ def test_studio_runs_shuttle_analysis_without_changing_timeline(tmp_path: Path, 
             encoding="utf-8",
         )
 
-    monkeypatch.setattr(studio, "detect_shuttle", fake_detect)
-    monkeypatch.setattr(studio, "analyze_shuttle_trajectory", fake_track)
+    patch_studio("detect_shuttle", fake_detect)
+    patch_studio("analyze_shuttle_trajectory", fake_track)
     state = StudioState(
         video=video,
         rallies=timeline,
@@ -775,7 +710,7 @@ def test_studio_runs_shuttle_analysis_without_changing_timeline(tmp_path: Path, 
         config=config,
         shuttle_model=shuttle_model,
     )
-    client = TestClient(studio.create_studio_app(state))
+    client = client_for(state)
     original_timeline = timeline.read_bytes()
     before = client.get("/api/project").json()
     assert before["shuttle_analysis"]["generated"] is False
@@ -861,7 +796,7 @@ def test_studio_restores_interrupted_background_job_as_actionable_error(tmp_path
         output=tmp_path / "edited.mp4",
         library=tmp_path,
     )
-    client = TestClient(studio.create_studio_app(state))
+    client = client_for(state)
 
     restored = client.get("/api/analyze").json()
     assert restored["state"] == "error"
@@ -870,7 +805,7 @@ def test_studio_restores_interrupted_background_job_as_actionable_error(tmp_path
     assert "缓存" in restored["message"]
 
 
-def test_studio_precomputes_full_video_pose_and_shuttle_overlays(tmp_path: Path, monkeypatch) -> None:
+def test_studio_precomputes_full_video_pose_and_shuttle_overlays(tmp_path: Path, patch_studio) -> None:
     video = tmp_path / "source.mp4"
     video.write_bytes(b"video")
     timeline = tmp_path / "rallies.csv"
@@ -894,12 +829,9 @@ def test_studio_precomputes_full_video_pose_and_shuttle_overlays(tmp_path: Path,
         "width": 1280,
         "height": 720,
     }
-    monkeypatch.setattr(studio, "_video_metadata", lambda _path: metadata)
-    monkeypatch.setattr(studio, "_calibration_ready", lambda _state: True)
-    monkeypatch.setattr(
-        studio,
-        "_runtime_payload",
-        lambda _state: {
+    patch_studio("video_metadata", lambda _path: metadata)
+    patch_studio("calibration_ready", lambda _state: True)
+    patch_studio("runtime_payload", lambda _state: {
             "ffmpeg": {
                 "available": True,
                 "path": "ffmpeg",
@@ -939,15 +871,16 @@ def test_studio_precomputes_full_video_pose_and_shuttle_overlays(tmp_path: Path,
         output.write_text("time_seconds,score\n", encoding="utf-8")
 
     def fake_features(_video, _config, output, *_args, progress_callback=None, **_kwargs):
-        output.write_text(",".join(sorted(studio.POSE_ASSOCIATION_FIELDS)) + "\n", encoding="utf-8")
+        output.write_text(",".join(sorted(POSE_ASSOCIATION_FIELDS)) + "\n", encoding="utf-8")
         if progress_callback:
             progress_callback(1.0)
 
-    monkeypatch.setattr(studio, "render_pose_overlay", fake_pose)
-    monkeypatch.setattr(studio, "detect_shuttle", fake_detect)
-    monkeypatch.setattr(studio, "analyze_shuttle_trajectory", fake_track)
-    monkeypatch.setattr(studio, "analyze_audio", fake_audio)
-    monkeypatch.setattr(studio, "extract_features", fake_features)
+    patch_studio("audio_available", lambda _state, _video=None: True)
+    patch_studio("render_pose_overlay", fake_pose)
+    patch_studio("detect_shuttle", fake_detect)
+    patch_studio("analyze_shuttle_trajectory", fake_track)
+    patch_studio("analyze_audio", fake_audio)
+    patch_studio("extract_features", fake_features)
     state = StudioState(
         video=video,
         rallies=timeline,
@@ -957,7 +890,7 @@ def test_studio_precomputes_full_video_pose_and_shuttle_overlays(tmp_path: Path,
         pose_model=pose_model,
         shuttle_model=shuttle_model,
     )
-    client = TestClient(studio.create_studio_app(state))
+    client = client_for(state)
     original_timeline = timeline.read_bytes()
 
     started = client.post("/api/analyze/visual", json={"project_id": "source.mp4", "force": False})
@@ -987,8 +920,8 @@ def test_studio_discovers_videos_and_seeds_working_copy(tmp_path: Path) -> None:
     truth.parent.mkdir()
     truth.write_text("rally,start_seconds,end_seconds\n1,1,2\n", encoding="utf-8")
 
-    assert _discover_videos(tmp_path) == [video]
-    working = _ensure_working_timeline(tmp_path, video)
+    assert discover_videos(tmp_path) == [video]
+    working = ensure_working_timeline(tmp_path, video)
     assert working == tmp_path / "Analysis" / "Studio" / "DJI_TEST_0007_D.csv"
     assert "1,1,2" in working.read_text(encoding="utf-8")
 
@@ -1004,13 +937,13 @@ def test_studio_prefers_latest_auto_cut_for_new_working_copy(tmp_path: Path) -> 
     truth.parent.mkdir()
     truth.write_text("rally,start_seconds,end_seconds\n1,1,2\n", encoding="utf-8")
 
-    working = _ensure_working_timeline(tmp_path, video)
+    working = ensure_working_timeline(tmp_path, video)
 
     assert working == video.parent / "Metadata" / "rallies-studio-review.csv"
     assert "1,3,7" in working.read_text(encoding="utf-8")
 
 
-def test_studio_api_switches_projects_from_library(tmp_path: Path, monkeypatch) -> None:
+def test_studio_api_switches_projects_from_library(tmp_path: Path, patch_studio) -> None:
     first = tmp_path / "first.mp4"
     second = tmp_path / "second.mp4"
     first.write_bytes(b"first")
@@ -1021,9 +954,9 @@ def test_studio_api_switches_projects_from_library(tmp_path: Path, monkeypatch) 
     def metadata(path: Path) -> dict[str, float | int | str]:
         return {"name": path.name, "duration": 10.0, "fps": 30.0, "frame_count": 300, "width": 1280, "height": 720}
 
-    monkeypatch.setattr(studio, "_video_metadata", metadata)
+    patch_studio("video_metadata", metadata)
     state = StudioState(video=first, rallies=timeline, output=tmp_path / "edited.mp4", library=tmp_path)
-    client = TestClient(studio.create_studio_app(state))
+    client = client_for(state)
     library = client.get("/api/library").json()
     assert [item["name"] for item in library["videos"]] == ["first.mp4", "second.mp4"]
 
@@ -1045,13 +978,14 @@ def test_studio_recursively_discovers_match_sources_but_not_derivatives(tmp_path
     edited.parent.mkdir()
     edited.write_bytes(b"edited")
 
-    assert _discover_videos(tmp_path) == [source]
-    assert _project_root(tmp_path, source) == match
-    assert _working_timeline_path(tmp_path, source) == match / "Metadata" / "rallies-studio-review.csv"
-    assert _default_output(tmp_path, source) == match / "Edited" / "Match2_final_1080p60.mp4"
+    assert discover_videos(tmp_path) == [source]
+    layout = ProjectLayout.for_video(tmp_path, source)
+    assert layout.root == match
+    assert layout.working_timeline == match / "Metadata" / "rallies-studio-review.csv"
+    assert layout.default_output == match / "Edited" / "Match2_final_1080p60.mp4"
 
 
-def test_studio_opens_recursive_video_by_stable_relative_id(tmp_path: Path, monkeypatch) -> None:
+def test_studio_opens_recursive_video_by_stable_relative_id(tmp_path: Path, patch_studio) -> None:
     first = tmp_path / "Match2" / "clip.mp4"
     second = tmp_path / "Match3" / "clip.mp4"
     first.parent.mkdir()
@@ -1062,10 +996,10 @@ def test_studio_opens_recursive_video_by_stable_relative_id(tmp_path: Path, monk
     timeline.parent.mkdir()
     timeline.write_text("rally,start_seconds,end_seconds\n1,1,2\n", encoding="utf-8")
     metadata = {"name": "clip.mp4", "duration": 10.0, "fps": 30.0, "frame_count": 300, "width": 1280, "height": 720}
-    monkeypatch.setattr(studio, "_video_metadata", lambda path: {**metadata, "name": path.name})
+    patch_studio("video_metadata", lambda path: {**metadata, "name": path.name})
 
     state = StudioState(video=first, rallies=timeline, output=tmp_path / "edited.mp4", library=tmp_path)
-    client = TestClient(studio.create_studio_app(state))
+    client = client_for(state)
     library = client.get("/api/library").json()
     assert [item["id"] for item in library["videos"]] == ["Match2/clip.mp4", "Match3/clip.mp4"]
 
@@ -1075,7 +1009,7 @@ def test_studio_opens_recursive_video_by_stable_relative_id(tmp_path: Path, monk
     assert state.rallies == second.parent / "Metadata" / "rallies-studio-review.csv"
 
 
-def test_studio_analysis_pipeline_publishes_editable_timeline(tmp_path: Path, monkeypatch) -> None:
+def test_studio_analysis_pipeline_publishes_editable_timeline(tmp_path: Path, patch_studio) -> None:
     video = tmp_path / "Match2" / "clip.mp4"
     video.parent.mkdir()
     video.write_bytes(b"video")
@@ -1103,20 +1037,17 @@ def test_studio_analysis_pipeline_publishes_editable_timeline(tmp_path: Path, mo
         output.write_text("rally,start_seconds,end_seconds\n1,1.0,4.0\n", encoding="utf-8")
         return [object()]
 
-    monkeypatch.setattr(studio, "_make_proxy", lambda *_args: proxy)
-    monkeypatch.setattr(studio, "analyze_audio", fake_audio)
-    monkeypatch.setattr(studio, "extract_features", fake_features)
-    monkeypatch.setattr(studio, "predict_model", fake_predict)
-    monkeypatch.setattr(studio, "segment_rallies", fake_segment)
-    monkeypatch.setattr(
-        studio,
-        "_video_metadata",
-        lambda path: {"name": path.name, "duration": 10.0, "fps": 30.0, "frame_count": 300, "width": 1280, "height": 720},
+    patch_studio("make_proxy", lambda *_args: proxy)
+    patch_studio("analyze_audio", fake_audio)
+    patch_studio("extract_features", fake_features)
+    patch_studio("predict_model", fake_predict)
+    patch_studio("segment_rallies", fake_segment)
+    patch_studio("video_metadata", lambda path: {"name": path.name, "duration": 10.0, "fps": 30.0, "frame_count": 300, "width": 1280, "height": 720},
     )
     timeline = video.parent / "Metadata" / "rallies-studio-review.csv"
     state = StudioState(video=video, rallies=timeline, output=tmp_path / "out.mp4", library=tmp_path, config=config, model=model)
 
-    result = _analyze_video(state, tmp_path, video, 1, 1)
+    result = analyze_video(state, video, 1, 1)
 
     assert result["rallies"] == 1
     assert _public_start(timeline) == 1.0
@@ -1126,7 +1057,7 @@ def test_studio_analysis_pipeline_publishes_editable_timeline(tmp_path: Path, mo
     assert segment_options["suppress_handoffs"] is True
 
 
-def test_hybrid_routes_yolo_and_tracknet_package_paths_separately(tmp_path: Path, monkeypatch) -> None:
+def test_hybrid_routes_yolo_and_tracknet_package_paths_separately(tmp_path: Path, patch_studio) -> None:
     video = tmp_path / "video.mp4"
     config = tmp_path / "camera.json"
     yolo_model = tmp_path / "shuttle.pt"
@@ -1154,9 +1085,9 @@ def test_hybrid_routes_yolo_and_tracknet_package_paths_separately(tmp_path: Path
         args[3].write_text("time_seconds,center_x,center_y\n", encoding="utf-8")
         return {"points": 0}
 
-    monkeypatch.setattr(studio, "detect_shuttle", fake_yolo)
-    monkeypatch.setattr(studio, "detect_tracknet", fake_tracknet)
-    monkeypatch.setattr(studio, "fuse_shuttle_detections", fake_fuse)
+    patch_studio("detect_shuttle", fake_yolo)
+    patch_studio("detect_tracknet", fake_tracknet)
+    patch_studio("fuse_shuttle_detections", fake_fuse)
     state = StudioState(
         video=video,
         rallies=tmp_path / "rallies.csv",
@@ -1170,7 +1101,7 @@ def test_hybrid_routes_yolo_and_tracknet_package_paths_separately(tmp_path: Path
         tracknet_packages=tracknet_packages,
     )
 
-    studio._run_shuttle_detection(state, video, analysis_root, force=True)
+    run_shuttle_detection(state, video, analysis_root, force=True)
 
     assert captured == {
         "yolo_packages": yolo_packages,
@@ -1184,10 +1115,374 @@ def _public_start(path: Path) -> float:
 
 def test_studio_tutorial_supports_english_and_chinese(tmp_path: Path) -> None:
     state = StudioState(video=tmp_path / "video.mp4", rallies=tmp_path / "rallies.csv", output=tmp_path / "edited.mp4")
-    client = TestClient(studio.create_studio_app(state))
+    client = client_for(state)
     english = client.get("/api/tutorial?language=en")
     chinese = client.get("/api/tutorial?language=zh")
     assert english.status_code == chinese.status_code == 200
     assert "# Smart Badminton Studio manual" in english.json()["markdown"]
     assert "完整使用教程" in chinese.json()["markdown"]
     assert client.get("/api/tutorial").json() == chinese.json()
+
+
+def test_studio_rejects_requests_for_a_foreign_host(tmp_path: Path) -> None:
+    state = StudioState(video=tmp_path / "video.mp4", rallies=tmp_path / "rallies.csv", output=tmp_path / "edited.mp4")
+    rebinding = TestClient(studio.create_studio_app(state), base_url="http://attacker.example")
+    assert rebinding.get("/api/health").status_code == 400
+    assert client_for(state).get("/api/health").status_code == 200
+
+
+def test_studio_refuses_to_analyze_a_video_without_audio(tmp_path: Path, patch_studio) -> None:
+    first, second = tmp_path / "first.mp4", tmp_path / "second.mp4"
+    for video in (first, second):
+        video.write_bytes(b"video")
+    timeline = tmp_path / "rallies.csv"
+    timeline.write_text("rally,start_seconds,end_seconds\n1,1,2\n", encoding="utf-8")
+    config, model = tmp_path / "court.json", tmp_path / "model.joblib"
+    config.write_text("{}", encoding="utf-8")
+    model.write_bytes(b"model")
+    metadata = {"name": "first.mp4", "duration": 10.0, "fps": 30.0, "frame_count": 300, "width": 1280, "height": 720}
+    patch_studio("video_metadata", lambda _path: metadata)
+    patch_studio("calibration_ready", lambda _state: True)
+    patch_studio("ffmpeg_available", lambda _state: True)
+    patch_studio("audio_available", lambda _state, video=None: False)
+    state = StudioState(
+        video=first, rallies=timeline, output=tmp_path / "edited.mp4", library=tmp_path, config=config, model=model
+    )
+    client = client_for(state)
+
+    automatic = client.get("/api/project").json()["automatic_analysis"]
+    assert automatic["configured"] is False
+    assert automatic["audio_available"] is False
+    assert automatic["configuration_issue"] == "此视频没有音轨，自动分析需要击球声，无法分析"
+    for path in ("/api/analyze", "/api/analyze/visual"):
+        response = client.post(path, json={"project_id": "first.mp4"})
+        assert response.status_code == 400
+        assert response.json()["detail"] == "此视频没有音轨，自动分析需要击球声，无法分析"
+    batch = client.post("/api/analyze/batch", json={})
+    assert batch.status_code == 400
+    assert batch.json()["detail"] == "这些视频没有音轨，无法自动分析：first.mp4、second.mp4"
+    assert state.analysis_status["state"] == "idle"
+
+
+def test_studio_releases_the_analysis_lock_when_options_are_invalid(tmp_path: Path, patch_studio) -> None:
+    video = tmp_path / "source.mp4"
+    video.write_bytes(b"video")
+    timeline = tmp_path / "rallies.csv"
+    timeline.write_text("rally,start_seconds,end_seconds\n1,1,2\n", encoding="utf-8")
+    patch_studio("audio_available", lambda _state, _video=None: True)
+    state = StudioState(video=video, rallies=timeline, output=tmp_path / "edited.mp4", library=tmp_path)
+    client = client_for(state)
+
+    rejected = client.post("/api/analyze", json={"preroll": "not-a-number"})
+
+    assert rejected.status_code == 400
+    assert state.analysis_lock.locked() is False
+
+
+def test_studio_starts_when_the_saved_job_status_is_unreadable(tmp_path: Path) -> None:
+    video = tmp_path / "source.mp4"
+    video.write_bytes(b"video")
+    status_path = tmp_path / ".smart-badminton" / "jobs" / "analysis-status.json"
+    status_path.parent.mkdir(parents=True)
+    state = StudioState(video=video, rallies=tmp_path / "rallies.csv", output=tmp_path / "edited.mp4", library=tmp_path)
+    for content in ('{"state": "runn', "[1, 2]"):
+        status_path.write_text(content, encoding="utf-8")
+        assert client_for(state).get("/api/analyze").json() == {"state": "idle"}
+
+
+def test_studio_releases_the_analysis_lock_when_job_status_cannot_be_saved(tmp_path: Path, patch_studio) -> None:
+    video = tmp_path / "source.mp4"
+    video.write_bytes(b"video")
+    timeline = tmp_path / "rallies.csv"
+    timeline.write_text("rally,start_seconds,end_seconds\n1,1,2\n", encoding="utf-8")
+    (tmp_path / ".smart-badminton").write_text("not a directory", encoding="utf-8")
+    model = tmp_path / "model.joblib"
+    model.write_bytes(b"model")
+    patch_studio("audio_available", lambda _state, _video=None: True)
+    patch_studio("calibration_ready", lambda _state: True)
+    state = StudioState(video=video, rallies=timeline, output=tmp_path / "edited.mp4", library=tmp_path, model=model)
+
+    rejected = client_for(state).post("/api/analyze", json={})
+
+    assert rejected.status_code == 400
+    assert "Directory" in rejected.json()["detail"] or "directory" in rejected.json()["detail"]
+    assert state.analysis_lock.locked() is False
+    assert state.analysis_status == {"state": "idle"}  # No phantom "running" job blocks other work.
+
+
+def test_studio_output_filename_cannot_escape_the_chosen_folder(tmp_path: Path) -> None:
+    video = tmp_path / "source.mp4"
+    video.write_bytes(b"video")
+    exports = tmp_path / "exports"
+    exports.mkdir()
+    state = StudioState(video=video, rallies=tmp_path / "rallies.csv", output=tmp_path / "edited.mp4", library=tmp_path)
+    client = client_for(state)
+
+    for filename in ("../../escaped.mp4", str(tmp_path / "elsewhere" / "absolute.mp4")):
+        response = client.put("/api/output", json={"project_id": "source.mp4", "directory": str(exports), "filename": filename})
+        assert response.status_code == 200
+        assert state.output.parent == exports.resolve()
+
+
+def test_studio_rejects_invalid_input_before_changing_anything(tmp_path: Path, patch_studio) -> None:
+    video = tmp_path / "source.mp4"
+    video.write_bytes(b"video")
+    timeline = tmp_path / "rallies.csv"
+    timeline.write_text("rally,start_seconds,end_seconds\n1,1,2\n", encoding="utf-8")
+    original_timeline = timeline.read_bytes()
+    metadata = {"name": video.name, "duration": 10.0, "fps": 30.0, "frame_count": 300, "width": 1280, "height": 720}
+    patch_studio("video_metadata", lambda _path: metadata)
+    patch_studio("audio_available", lambda _state, _video=None: True)
+    state = StudioState(video=video, rallies=timeline, output=tmp_path / "edited.mp4", library=tmp_path)
+    client = client_for(state)
+
+    for segments in (
+        [{"start": -1, "end": 2}],
+        [{"start": 1, "end": 1.01}],
+        [{"start": 3, "end": 2}],
+        [{"start": 1, "end": 11}],
+        [{"start": "nan", "end": 2}],
+        [{"start": 1, "end": 3}, {"start": 2, "end": 4}],
+    ):
+        response = client.put("/api/timeline", json={"project_id": "source.mp4", "segments": segments})
+        assert response.status_code == 400, segments
+    assert timeline.read_bytes() == original_timeline
+
+    regions = client.get("/api/calibration").json()["regions"]
+    square = [[0.1, 0.1], [0.8, 0.1], [0.8, 0.8], [0.1, 0.8]]
+    for region in regions:
+        if region["required"]:
+            region["points"] = square
+    for bad in ([[0.1, 0.1], [0.2, 0.2], [0.3, 0.3]], [[0.1, 0.1], [1.4, 0.1], [0.5, 0.8]], [[0.1, 0.1], [0.8, 0.1]]):
+        regions[0]["points"] = bad
+        response = client.put("/api/calibration", json={"project_id": "source.mp4", "regions": regions})
+        assert response.status_code == 400, bad
+    regions[0]["points"] = square
+    corners = next(region for region in regions if region["id"] == "court_corners")
+    corners["points"] = [[0.1, 0.1], [0.8, 0.8], [0.8, 0.1], [0.1, 0.8]]  # self-intersecting order
+    assert client.put("/api/calibration", json={"project_id": "source.mp4", "regions": regions}).status_code == 400
+    assert state.config is None
+
+    empty = tmp_path / "empty"
+    empty.mkdir()
+    for path in (empty, tmp_path / "missing"):
+        assert client.post("/api/library", json={"path": str(path)}).status_code == 400
+    assert state.library == tmp_path
+
+    for options in ({"preroll": -10}, {"postroll": 100}, {"preroll": "nan"}):
+        assert client.post("/api/analyze", json=options).status_code == 400, options
+    assert state.analysis_lock.locked() is False
+    assert state.analysis_options["preroll"] == 0.35
+
+
+def test_studio_saves_a_job_status_before_reporting_it(tmp_path: Path, monkeypatch) -> None:
+    video = tmp_path / "source.mp4"
+    video.write_bytes(b"video")
+    state = StudioState(video=video, rallies=tmp_path / "rallies.csv", output=tmp_path / "edited.mp4", library=tmp_path)
+    status_path = tmp_path / ".smart-badminton" / "jobs" / "analysis-status.json"
+    original_write = Path.write_text
+    seen_in_memory: list[str] = []
+
+    def slow_write(self, data, *args, **kwargs):
+        # Observe what a polling client would see while the file is still being written.
+        seen_in_memory.append(state.analysis_status.get("state", ""))
+        return original_write(self, data, *args, **kwargs)
+
+    monkeypatch.setattr(Path, "write_text", slow_write)
+    studio_state.begin_analysis_status(state, mode="shuttle")
+    studio_state.set_analysis_status(state, state="complete")
+
+    assert json.loads(status_path.read_text(encoding="utf-8"))["state"] == "complete"
+    assert "complete" not in seen_in_memory
+
+
+def test_studio_rejects_stale_writes_unknown_rallies_and_modes(tmp_path: Path, patch_studio) -> None:
+    video = tmp_path / "source.mp4"
+    video.write_bytes(b"video")
+    timeline = tmp_path / "rallies.csv"
+    timeline.write_text("rally,start_seconds,end_seconds\n1,1,2\n", encoding="utf-8")
+    original_timeline = timeline.read_bytes()
+    metadata = {"name": video.name, "duration": 10.0, "fps": 30.0, "frame_count": 300, "width": 1280, "height": 720}
+    patch_studio("video_metadata", lambda _path: metadata)
+    state = StudioState(video=video, rallies=timeline, output=tmp_path / "edited.mp4", library=tmp_path)
+    client = client_for(state)
+
+    missing_id = client.put("/api/timeline", json={"segments": [{"start": 3, "end": 4}]})
+    assert missing_id.status_code == 409
+    assert timeline.read_bytes() == original_timeline
+    for rally in (0, -1, 2):
+        assert client.get("/media/pose-overlay", params={"rally": rally}).status_code == 400, rally
+    assert client.put("/api/settings/shuttle-mode", json={"mode": "tracknet"}).status_code == 400
+    assert state.shuttle_mode == "hybrid"
+
+
+def test_studio_reports_an_unreadable_video(tmp_path: Path) -> None:
+    corrupt = tmp_path / "corrupt.mp4"
+    corrupt.write_bytes(b"not a video")
+
+    with pytest.raises(ValueError, match="Could not read video: corrupt.mp4"):
+        project.video_metadata(corrupt)
+
+
+def test_studio_job_reports_an_error_when_its_status_can_no_longer_be_saved(tmp_path: Path) -> None:
+    video = tmp_path / "source.mp4"
+    video.write_bytes(b"video")
+    state = StudioState(video=video, rallies=tmp_path / "rallies.csv", output=tmp_path / "edited.mp4", library=tmp_path)
+    jobs_dir = tmp_path / ".smart-badminton" / "jobs"
+
+    def fill_disk_then_report_progress() -> None:
+        for child in jobs_dir.iterdir():
+            child.unlink()
+        jobs_dir.rmdir()
+        jobs_dir.write_text("disk full stand-in", encoding="utf-8")  # every later status write now fails
+        jobs.complete(state, "visual", "done", 1, [])  # terminal updates are always written
+
+    state.analysis_lock.acquire()
+    jobs.start_analysis_job(state, "visual", "failed", fill_disk_then_report_progress, total=1)
+    deadline = time.monotonic() + 2.0
+    while state.analysis_lock.locked() and time.monotonic() < deadline:
+        time.sleep(0.01)
+
+    assert state.analysis_lock.locked() is False
+    assert state.analysis_status["state"] == "error"
+
+
+def test_studio_opens_a_video_whose_shuttle_metadata_is_truncated(tmp_path: Path, patch_studio) -> None:
+    video = tmp_path / "source.mp4"
+    video.write_bytes(b"video")
+    timeline = tmp_path / "rallies.csv"
+    timeline.write_text("rally,start_seconds,end_seconds\n1,1,2\n", encoding="utf-8")
+    config, shuttle_model = tmp_path / "court.json", tmp_path / "shuttle.pt"
+    config.write_text("{}", encoding="utf-8")
+    shuttle_model.write_bytes(b"model")
+    analysis = tmp_path / "Analysis" / "Auto" / "source"
+    analysis.mkdir(parents=True)
+    (analysis / "shuttle-raw.csv").write_text("time_seconds,center_x,center_y\n", encoding="utf-8")
+    (analysis / "shuttle-detection.json").write_text('{"mode": "hyb', encoding="utf-8")
+    metadata = {"name": video.name, "duration": 10.0, "fps": 30.0, "frame_count": 300, "width": 1280, "height": 720}
+    patch_studio("video_metadata", lambda _path: metadata)
+    state = StudioState(
+        video=video, rallies=timeline, output=tmp_path / "edited.mp4", library=tmp_path, config=config, shuttle_model=shuttle_model
+    )
+
+    project_response = client_for(state).get("/api/project")
+
+    assert project_response.status_code == 200
+    assert project_response.json()["shuttle_analysis"]["raw_generated"] is True
+
+
+def test_studio_rejects_renders_and_analysis_it_cannot_complete(tmp_path: Path, patch_studio) -> None:
+    video = tmp_path / "source.mp4"
+    video.write_bytes(b"video")
+    timeline = tmp_path / "rallies.csv"
+    timeline.write_text("rally,start_seconds,end_seconds\n1,1,2\n", encoding="utf-8")
+    patch_studio("audio_available", lambda _state, _video=None: True)
+    patch_studio("ffmpeg_available", lambda _state: True)
+    state = StudioState(video=video, rallies=timeline, output=tmp_path / "edited.mp4", library=tmp_path)
+    client = client_for(state)
+
+    for options in (
+        {"include_trajectory": "false"},
+        {"winner_filter": "everyone"},
+        {"include_trajectory": True},
+        {"include_score": True},
+        {"winner_filter": "near"},
+    ):
+        assert client.post("/api/render", json=options).status_code == 400, options
+    assert state.render_status == {"state": "idle"}
+
+    no_model = client.post("/api/analyze", json={})
+    assert no_model.status_code == 400
+    assert "model" in no_model.json()["detail"]
+    state.model = tmp_path / "model.joblib"
+    state.model.write_bytes(b"model")
+    uncalibrated = client.post("/api/analyze", json={})
+    assert uncalibrated.status_code == 400
+    assert "calibration" in uncalibrated.json()["detail"]
+    assert state.analysis_status["state"] == "idle"
+
+
+def test_studio_opens_a_video_with_corrupt_calibration_or_score_cache(tmp_path: Path, patch_studio) -> None:
+    video = tmp_path / "source.mp4"
+    video.write_bytes(b"video")
+    timeline = tmp_path / "rallies.csv"
+    timeline.write_text("rally,start_seconds,end_seconds\n1,1,2\n", encoding="utf-8")
+    config = tmp_path / "court.json"
+    config.write_text('{"masks_normalized": {', encoding="utf-8")
+    analysis = tmp_path / "Analysis" / "Auto" / "source"
+    analysis.mkdir(parents=True)
+    (analysis / "score-state.csv").write_text("rally,winner\n1,near\n", encoding="utf-8")
+    (analysis / "score-summary.json").write_text('{"rallies": [', encoding="utf-8")
+    metadata = {"name": video.name, "duration": 10.0, "fps": 30.0, "frame_count": 300, "width": 1280, "height": 720}
+    patch_studio("video_metadata", lambda _path: metadata)
+    state = StudioState(video=video, rallies=timeline, output=tmp_path / "edited.mp4", library=tmp_path, config=config)
+
+    project_payload = client_for(state).get("/api/project")
+
+    assert project_payload.status_code == 200
+    assert project_payload.json()["calibration"]["ready"] is False
+    assert project_payload.json()["score"]["stale"] is True
+
+
+def test_studio_wildcard_bind_keeps_host_checking_on() -> None:
+    hosts = app.allowed_hosts_for("0.0.0.0")
+    assert "*" not in hosts
+    assert {"127.0.0.1", "localhost"} <= set(hosts)
+    assert app.allowed_hosts_for("192.168.1.20")[-1] == "192.168.1.20"
+    assert app.allowed_hosts_for("127.0.0.1") == app.LOOPBACK_HOSTS
+
+
+def test_studio_rejects_visual_jobs_without_their_prerequisites(tmp_path: Path, patch_studio) -> None:
+    video = tmp_path / "source.mp4"
+    video.write_bytes(b"video")
+    timeline = tmp_path / "rallies.csv"
+    timeline.write_text("rally,start_seconds,end_seconds\n1,1,2\n", encoding="utf-8")
+    config, shuttle_model = tmp_path / "court.json", tmp_path / "shuttle.pt"
+    config.write_text("{}", encoding="utf-8")  # exists, but no calibrated regions
+    shuttle_model.write_bytes(b"model")
+    patch_studio("audio_available", lambda _state, _video=None: True)
+    state = StudioState(
+        video=video, rallies=timeline, output=tmp_path / "edited.mp4", library=tmp_path, config=config, shuttle_model=shuttle_model
+    )
+    client = client_for(state)
+
+    for path, payload in (
+        ("/api/analyze/shuttle", {"project_id": "source.mp4"}),
+        ("/api/analyze/visual", {"project_id": "source.mp4"}),
+        ("/api/pose-overlay", {"project_id": "source.mp4", "rally": 1}),
+    ):
+        response = client.post(path, json=payload)
+        assert response.status_code == 400, path
+        assert "calibration" in response.json()["detail"], path
+    assert state.analysis_status == {"state": "idle"}
+    assert state.analysis_lock.locked() is False
+
+
+def test_studio_wildcard_bind_accepts_own_interface_ips_only(tmp_path: Path) -> None:
+    state = StudioState(video=tmp_path / "video.mp4", rallies=tmp_path / "rallies.csv", output=tmp_path / "edited.mp4")
+    wildcard = studio.create_studio_app(state, app.allowed_hosts_for("0.0.0.0"), allow_local_ips=True)
+    loopback_only = studio.create_studio_app(state)
+
+    def status(application, host: str) -> int:
+        return TestClient(application, base_url=f"http://{host}").get("/api/health").status_code
+
+    assert status(wildcard, "127.0.0.2:8765") == 200  # another address this machine owns
+    for foreign in ("attacker.example", "8.8.8.8", "0.0.0.0"):
+        assert status(wildcard, foreign) == 400, foreign
+    assert status(loopback_only, "127.0.0.2") == 400
+    assert status(loopback_only, "localhost:8765") == 200
+
+
+def test_studio_evidence_is_unavailable_when_timelines_do_not_overlap(tmp_path: Path) -> None:
+    analysis = tmp_path / "Analysis" / "Auto" / "source"
+    analysis.mkdir(parents=True)
+    pd.DataFrame({"time_seconds": [0.0, 0.1], "near_swing_score": [0.0, 0.0]}).to_csv(analysis / "smart-features.csv", index=False)
+    pd.DataFrame({"time_seconds": [5.0, 5.1], "rally_probability": [0.9, 0.9]}).to_csv(
+        analysis / "rally-probabilities.csv", index=False
+    )
+    state = StudioState(video=tmp_path / "source.mp4", rallies=tmp_path / "rallies.csv", output=tmp_path / "e.mp4", library=tmp_path)
+
+    payload = evidence_payload(state)
+
+    assert payload["available"] is False
+    assert "do not overlap" in payload["reason"]

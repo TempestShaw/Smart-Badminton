@@ -206,6 +206,7 @@ export interface ProjectPayload {
   automatic_analysis: {
     configured: boolean;
     pose_overlay_configured: boolean;
+    audio_available: boolean;
     configuration_issue: string | null;
     model: string | null;
     shuttle_model: string | null;

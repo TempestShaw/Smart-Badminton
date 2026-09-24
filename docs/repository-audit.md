@@ -14,7 +14,7 @@
 - `smart_badminton/analytics.py`: post-boundary entertainment estimates and explainable fallbacks;
 - `smart_badminton/evaluate.py`: per-rally coverage regression;
 - `smart_badminton/render.py`: final MP4 rendering;
-- `smart_badminton/studio.py`: local project/media API and job orchestration;
+- `smart_badminton/studio/`: local project/media API and job orchestration;
 - `studio-web/`: maintainable React/Next.js timeline editor source;
 - `smart_badminton/studio_static/`: generated, packaged static Studio build;
 - `smart_badminton/cli.py`: public command-line interface.

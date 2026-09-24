@@ -1,6 +1,8 @@
 from __future__ import annotations
 
+import re
 import subprocess
+import sys
 from collections.abc import Callable
 from pathlib import Path
 
@@ -160,6 +162,29 @@ def choose_working_video_encoder(
     raise RuntimeError(f"FFmpeg H.264 encoders were found but none could start ({attempted}). {details}")
 
 
+def has_audio_stream(ffmpeg: Path, video: Path) -> bool:
+    """Report whether FFmpeg sees at least one audio stream in ``video``."""
+    # Without an output file FFmpeg exits non-zero after printing the input streams, which is all this needs.
+    result = subprocess.run([str(ffmpeg), "-hide_banner", "-i", str(video)], capture_output=True, text=True)
+    return re.search(r"^\s*Stream #\S+.*: Audio:", result.stderr, re.MULTILINE) is not None
+
+
+def run_ffmpeg(command: list[str]) -> None:
+    """Run FFmpeg, passing its stderr through live while keeping the tail for error reports."""
+    tail = ""
+    with subprocess.Popen(command, stderr=subprocess.PIPE, text=True, errors="replace") as process:
+        for chunk in iter(lambda: process.stderr.read(4096), ""):
+            sys.stderr.write(chunk)
+            tail = (tail + chunk)[-4000:]
+    if process.returncode:
+        raise subprocess.CalledProcessError(process.returncode, command, stderr=tail)
+
+
+def _last_ffmpeg_lines(stderr: str | None, count: int = 3) -> str:
+    lines = [line.strip() for line in re.split(r"[\r\n]+", stderr or "") if line.strip()]
+    return " | ".join(lines[-count:])
+
+
 def run_ffmpeg_with_encoder_fallback(
     ffmpeg: Path | None,
     requested: str,
@@ -174,7 +199,7 @@ def run_ffmpeg_with_encoder_fallback(
         if output is not None:
             output.unlink(missing_ok=True)
         try:
-            subprocess.run(command_for(candidate), check=True)
+            run_ffmpeg(command_for(candidate))
             return candidate
         except subprocess.CalledProcessError as error:
             failures.append((candidate, error))
@@ -182,6 +207,8 @@ def run_ffmpeg_with_encoder_fallback(
         output.unlink(missing_ok=True)
     attempted = ", ".join(candidate for candidate, _error in failures)
     last_error = failures[-1][1]
+    detail = _last_ffmpeg_lines(last_error.stderr)
     raise RuntimeError(
-        f"FFmpeg could not encode H.264 with any available encoder ({attempted}); last exit code {last_error.returncode}"
+        f"FFmpeg failed with every available H.264 encoder ({attempted}); last exit code {last_error.returncode}"
+        + (f": {detail}" if detail else "")
     ) from last_error

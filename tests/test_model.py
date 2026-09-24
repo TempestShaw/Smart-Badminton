@@ -4,8 +4,16 @@ from pathlib import Path
 import joblib
 import numpy as np
 import pandas as pd
+import pytest
+import sklearn
 
-from smart_badminton.model import benchmark_multi_models, build_feature_matrix, predict_model, train_multi_model
+from smart_badminton.model import (
+    benchmark_multi_models,
+    build_feature_matrix,
+    load_model_bundle,
+    predict_model,
+    train_multi_model,
+)
 
 
 def _write_source(root: Path, source_id: str, offset: float) -> tuple[Path, Path]:
@@ -85,6 +93,7 @@ def test_multi_video_training_holds_out_entire_sources(tmp_path: Path) -> None:
     assert report["training_samples"] == 240
     bundle = joblib.load(model)
     assert bundle["training_sources"] == ["a", "b"]
+    assert bundle["sklearn_version"] == sklearn.__version__
     assert bundle["rally_gap_profile"]["sample_count"] == 2
     assert bundle["rally_gap_profile"]["soft_min_seconds"] >= bundle["rally_gap_profile"]["hard_min_seconds"]
     assert json.loads(report_path.read_text(encoding="utf-8"))["leave_one_video_out_mean"]["recall"] >= 0
@@ -122,3 +131,12 @@ def test_model_benchmark_runs_real_segmentation_and_selects_family(tmp_path: Pat
     assert report["selected_family"] in {"hist_gradient_boosting", "logistic_regression"}
     assert all("segmentation_mean" in result for result in report["families"])
     assert json.loads(report_path.read_text(encoding="utf-8"))["selection_score"] >= 0
+
+
+def test_model_bundle_from_an_incompatible_scikit_learn_explains_the_pin(tmp_path: Path) -> None:
+    model = tmp_path / "future.joblib"
+    # A protocol-0 pickle referencing a module this scikit-learn does not ship, as 1.9 does for 1.6.0 bundles.
+    model.write_bytes(b"csklearn._removed_internal_module\nLoss\n.")
+
+    with pytest.raises(RuntimeError, match="scikit-learn range pinned in pyproject.toml"):
+        load_model_bundle(model)

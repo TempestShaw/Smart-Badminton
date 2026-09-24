@@ -9,6 +9,7 @@ from pathlib import Path
 import cv2
 import numpy as np
 
+from .encoding import has_audio_stream
 from .io import resolve_ffmpeg
 
 
@@ -33,11 +34,14 @@ def analyze_audio(
     temporary: tempfile.TemporaryDirectory[str] | None = None
     wav_path = input_path
     if input_path.suffix.lower() != ".wav":
+        ffmpeg_path = resolve_ffmpeg(ffmpeg)
+        if not has_audio_stream(ffmpeg_path, input_path):
+            raise ValueError(f"{input_path.name} has no audio track; rally analysis needs the sound of the hits")
         temporary = tempfile.TemporaryDirectory(prefix="smart-badminton-audio-")
         wav_path = Path(temporary.name) / "audio.wav"
         subprocess.run(
             [
-                str(resolve_ffmpeg(ffmpeg)),
+                str(ffmpeg_path),
                 "-y",
                 "-hide_banner",
                 "-loglevel",
