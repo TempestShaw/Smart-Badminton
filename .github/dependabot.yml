@@ -12,3 +12,7 @@ updates:
     directory: /studio-web
     schedule:
       interval: weekly
+    ignore:
+      # Node type definitions follow the Node major used by CI (22), not the newest Node release.
+      - dependency-name: "@types/node"
+        update-types: ["version-update:semver-major"]
