@@ -296,6 +296,10 @@ def main() -> None:
     studio.add_argument("--tracknet-packages", type=path)
     studio.add_argument("--packages", type=path)
     studio.add_argument("--https", action="store_true", help="serve HTTPS so phones on the LAN can share their camera")
+    evaluate_hits = commands.add_parser("evaluate-contacts", help="precision/recall of detected hits against hand-marked hits")
+    evaluate_hits.add_argument("--predicted", type=path, required=True, help="rally-contacts.csv")
+    evaluate_hits.add_argument("--truth", type=path, required=True, help="CSV with time_seconds and player (near/far)")
+    evaluate_hits.add_argument("--tolerance", type=float, default=0.15)
     live = commands.add_parser("live", help="real-time analysis of a camera, stream or phone; open the page on any device")
     live.add_argument("--library", type=path, default=Path("."), help="where recordings and the live calibration are kept")
     live.add_argument("--source", help="camera number (0), stream URL, video file, or 'browser' for a phone camera")
@@ -672,6 +676,10 @@ def main() -> None:
             args.tracknet_packages,
             args.https,
         )
+    elif args.command == "evaluate-contacts":
+        from .contacts import evaluate_contacts
+
+        print(json.dumps(evaluate_contacts(args.predicted, args.truth, args.tolerance), indent=2))
     elif args.command == "live":
         from .studio.live_routes import run_live
 

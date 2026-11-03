@@ -25,6 +25,7 @@ import cv2
 import numpy as np
 
 from .audio import StreamingHitDetector
+from .contacts import MINIMUM_REPLY_SECONDS, MINIMUM_SAME_SIDE_SECONDS
 from .features import FEATURE_FIELDS, MotionSignals
 from .geometry import CourtGeometry
 from .players import (
@@ -630,11 +631,12 @@ class LiveAnalyzer:
         return previous if previous is not None and previous.detected else None
 
     def _register_shot(self, hitter: PlayerObservation, time_seconds: float) -> None:
-        """Deduplicate shot evidence: shots alternate sides, so a same-side repeat must be a separate rally beat."""
+        """Deduplicate shot evidence with the offline rules: a reply needs time to cross the net, and the same side
+        can only hit again after a full exchange."""
         if self.last_shot is not None:
             side, last_time = self.last_shot
             gap = time_seconds - last_time
-            if gap < 0.35 or (side == hitter.side and gap < 1.2):
+            if gap < MINIMUM_REPLY_SECONDS or (side == hitter.side and gap < MINIMUM_SAME_SIDE_SECONDS):
                 return
         self.last_shot = (hitter.side, time_seconds)
         if self.rallies.current is None:
