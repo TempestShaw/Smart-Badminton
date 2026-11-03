@@ -35,5 +35,11 @@ For Studio, pass the same path with `--model`. Keep the adjacent adapter file to
 
 ## Scope
 
-The model was trained for fixed, full-court singles footage. New camera angles, doubles, heavy occlusion and poor court
-visibility may require manual timeline adjustment or camera-specific training.
+The model was trained for fixed, full-court singles footage. For doubles, the player tracker follows two players per
+side and folds them into the same per-side features (the partner nearest the shuttle is the active player), so the
+singles-trained model applies without retraining; expect somewhat less certain boundaries until doubles recordings are
+added to training. New camera angles, heavy occlusion and poor court visibility may require manual timeline adjustment
+or camera-specific training.
+
+The model also expects racket-hit audio. Live analysis without sound leans on shuttle flight instead, because the
+model alone is under-confident there.

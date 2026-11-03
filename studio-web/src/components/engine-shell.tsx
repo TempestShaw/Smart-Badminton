@@ -10,37 +10,78 @@ import { LanguageSwitcher } from "@/components/language-controls";
 import { ThemeToggle } from "@/components/theme-controls";
 import { Brand } from "@/components/brand";
 import { BrowserQuickStudio } from "@/components/browser-quick-studio";
+import { LiveStudio } from "@/components/live-studio";
 import { StudioApp } from "@/components/studio-app";
 import { Button } from "@/components/ui/button";
+import { apiUrl } from "@/lib/api";
 
-type EngineMode = "detecting" | "browser" | "native";
+type EngineMode = "detecting" | "browser" | "native" | "live";
+type NativeView = "studio" | "live";
 
 function localStudioHost(): boolean {
   return ["localhost", "127.0.0.1", "::1"].includes(window.location.hostname);
+}
+
+/** A page served by the local Studio (also over the LAN, e.g. on a phone) can reach its API on the same origin. */
+async function servedBy(): Promise<"studio" | "live" | null> {
+  const controller = new AbortController();
+  const timer = window.setTimeout(() => controller.abort(), 1500);
+  try {
+    const response = await fetch(apiUrl("/api/health"), { signal: controller.signal });
+    if (!response.ok) return null;
+    const health = (await response.json()) as { ok?: boolean; mode?: string };
+    return health.ok ? (health.mode === "live" ? "live" : "studio") : null;
+  } catch {
+    return null;
+  } finally {
+    window.clearTimeout(timer);
+  }
 }
 
 export function EngineShell() {
   useTranslation();
   const [mode, setMode] = useState<EngineMode>("detecting");
   const [localHost, setLocalHost] = useState(false);
+  const [served, setServed] = useState(false);
+  const [view, setView] = useState<NativeView>("studio");
 
   useEffect(() => {
     const local = localStudioHost();
-    const requested = new URLSearchParams(window.location.search).get("engine");
+    const parameters = new URLSearchParams(window.location.search);
+    const requested = parameters.get("engine");
     setLocalHost(local);
-    setMode(requested === "browser" ? "browser" : requested === "native" ? "native" : local ? "native" : "browser");
+    void servedBy().then((server) => {
+      setServed(server !== null);
+      // Phones and tablets reaching Studio over the LAN usually come for the live view.
+      setView(parameters.get("view") === "live" || (server !== null && !local && parameters.get("view") !== "studio") ? "live" : "studio");
+      if (server === "live") setMode("live");
+      else if (requested === "browser") setMode("browser");
+      else if (requested === "native" || server === "studio") setMode("native");
+      else setMode(local ? "native" : "browser");
+    });
   }, []);
 
-  const switchMode = (next: Exclude<EngineMode, "detecting">) => {
+  const switchMode = (next: Exclude<EngineMode, "detecting" | "live">) => {
     const url = new URL(window.location.href);
     url.searchParams.set("engine", next);
     window.history.replaceState(null, "", url);
     setMode(next);
   };
 
+  const switchView = (next: NativeView) => {
+    const url = new URL(window.location.href);
+    url.searchParams.set("view", next);
+    window.history.replaceState(null, "", url);
+    setView(next);
+  };
+
   if (mode === "detecting") return <div className="engine-loading"><span className="loader" /></div>;
+  if (mode === "live") return <LiveStudio />;
   if (mode === "browser") return <BrowserQuickStudio onSwitchNative={() => switchMode("native")} />;
-  if (localHost) return <StudioApp onSwitchEngine={() => switchMode("browser")} />;
+  if (localHost || served) {
+    if (view === "live") return <LiveStudio onBack={() => switchView("studio")} />;
+    return <StudioApp onSwitchEngine={() => switchMode("browser")} onOpenLive={() => switchView("live")} />;
+  }
 
   return (
     <main className="native-connect">

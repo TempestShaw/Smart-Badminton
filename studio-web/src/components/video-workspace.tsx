@@ -376,7 +376,16 @@ function CalibrationPanel({
           </SelectContent>
         </Select>
       </Label>
+      <Label>{t("比赛类型")}<Select value={calibration.matchFormat} onValueChange={(value) => calibration.setMatchFormat(value as "singles" | "doubles")}>
+          <SelectTrigger aria-label={t("比赛类型")}><SelectValue /></SelectTrigger>
+          <SelectContent>
+            <SelectItem value="singles">{t("单打")}</SelectItem>
+            <SelectItem value="doubles">{t("双打（每边跟踪两人）")}</SelectItem>
+          </SelectContent>
+        </Select>
+      </Label>
       <div className="tool-panel-actions">
+        <Button variant="secondary" disabled={(corners?.points?.length ?? 0) !== 4} onClick={() => void calibration.deriveFromCorners()} title={t("请先按顺序点出单打场地四角")}>{t("从四角推算全部区域")}</Button>
         <Button variant="secondary" onClick={() => { if (hasGeneratedHelpers) setReplaceOpen(true); else calibration.autoGenerate(false); }}>{t("从有效场地生成辅助区")}</Button>
         <Button variant="outline" onClick={() => calibration.addRegion("background_court_polygons")}>{t("＋ 背景排除区")}</Button>
         <Button variant="outline" onClick={() => calibration.addRegion("static_false_positive_polygons")}>{t("＋ 静态误检区")}</Button>

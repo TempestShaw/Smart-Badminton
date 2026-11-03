@@ -14,7 +14,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import type { StudioController } from "@/hooks/use-studio-controller";
-import type { ScoreCorrection, ScoreSuggestion } from "@/types/studio";
+import type { PlayerSummary, ScoreCorrection, ScoreSuggestion } from "@/types/studio";
 
 const eventLabels: Record<string, string> = {
   landing_in_candidate: "界内落地",
@@ -86,6 +86,8 @@ export function RallyInspector({ studio }: { studio: StudioController }) {
           ) : <div className="empty-insight">{t("暂无本场球路")}</div>}
         </section>
       ) : null}
+
+      <PlayersCard studio={studio} />
 
       <div className="nudge-grid">
         <Button size="xs" variant="outline" disabled={!segment} onClick={() => segment && studio.editBoundary(studio.selectedIndex, "start", segment.start - step)}>{t("开始 −1 帧")}</Button>
@@ -203,5 +205,28 @@ function OutcomeSelect({ label, value, options, disabled, onChange }: { label: s
         <SelectContent>{options.map(([option, text]) => <SelectItem key={option} value={option}>{t(text)}</SelectItem>)}</SelectContent>
       </Select>
     </label>
+  );
+}
+
+function PlayersCard({ studio }: { studio: StudioController }) {
+  const players = studio.project?.players;
+  if (!players?.available || !players.players?.length) return null;
+  const name = (player: PlayerSummary) => {
+    const [side, slot] = player.player_id.split("-");
+    return `${side === "near" ? t("近场") : t("远场")} ${slot}`;
+  };
+  return (
+    <section className="action-insights players-insights">
+      <div className="action-heading"><span className="eyebrow">{t("球员数据（整场）")}</span><span>{players.match_format === "doubles" ? t("双打") : t("单打")}</span></div>
+      <div className="players-insights-list">
+        {players.players.map((player) => (
+          <div key={player.player_id} className="players-insights-row" data-player={player.player_id}>
+            <span className="live-player-swatch" /><strong>{name(player)}</strong>
+            <span>{player.metric ? `${player.distance_meters.toFixed(0)} m · ${player.max_speed_meters_per_second.toFixed(1)} m/s` : "—"}</span>
+            <span>{t("挥拍 {{swings}} · 击球 {{hits}}", { swings: player.swings, hits: player.hits })}</span>
+          </div>
+        ))}
+      </div>
+    </section>
   );
 }

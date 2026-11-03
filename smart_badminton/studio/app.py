@@ -12,6 +12,7 @@ from pathlib import Path
 from typing import Any
 
 from ..io import load_rallies, resolve_ffmpeg
+from ..live import derive_regions_from_corners
 from ..model_assets import resolve_model
 from ..phase_examples import capture_phase_examples
 from ..pose_overlay import render_pose_overlay
@@ -213,7 +214,8 @@ def create_studio_app(
 
     @app.get("/media/video")
     def video():
-        return FileResponse(state.proxy or state.video, media_type="video/mp4")
+        media = state.proxy or state.video
+        return FileResponse(media, media_type="video/webm" if media.suffix.lower() == ".webm" else "video/mp4")
 
     @app.get("/api/health")
     def health():
@@ -514,6 +516,21 @@ def create_studio_app(
             "pose_overlay_configured": bool(ready and state.pose_model and ffmpeg_ok),
             "shuttle_analysis": shuttle_status_payload(state),
         }
+
+    @app.post("/api/calibration/from-corners")
+    def calibration_from_corners(payload: dict[str, Any]):
+        """Every region derived from the four singles corners, for the editor to review before saving."""
+        metadata = video_metadata(state.video)
+        corners = payload.get("corners")
+        if not isinstance(corners, list) or len(corners) != 4:
+            raise ValueError("Place the four singles-court corners first")
+        derived = derive_regions_from_corners(
+            [[float(x), float(y)] for x, y in corners],
+            int(metadata["width"]),
+            int(metadata["height"]),
+            str(payload.get("match_format") or "singles"),
+        )
+        return {"regions": {"court_corners": derived["court_corners_normalized"], **derived["masks"]}}
 
     @app.post("/api/pose-overlay")
     def pose_overlay(payload: dict[str, Any]):

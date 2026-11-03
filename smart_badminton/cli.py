@@ -311,6 +311,8 @@ def main() -> None:
     live.add_argument("--model", type=path, help="rally-state model")
     live.add_argument("--packages", type=path)
     live.add_argument("--ffmpeg", type=path)
+    live.add_argument("--pose-size", type=int, help="pose inference size (default 640 on CUDA, 480 on CPU)")
+    live.add_argument("--shuttle-size", type=int, help="shuttle inference size (default 960 on CUDA, 640 on CPU)")
 
     args = parser.parse_args()
 
@@ -688,4 +690,6 @@ def main() -> None:
             args.packages,
             args.ffmpeg,
             args.open,
+            args.pose_size,
+            args.shuttle_size,
         )

@@ -767,6 +767,11 @@ def read_player_tracks(path: Path) -> list[dict[str, str]]:
         return list(csv.DictReader(handle))
 
 
+def smooth_point(previous: tuple[float, float], current: tuple[float, float], weight: float = 0.5) -> tuple[float, float]:
+    """Exponential smoothing of a court position; the foot point jitters by ~10 cm between frames."""
+    return (previous[0] + (current[0] - previous[0]) * weight, previous[1] + (current[1] - previous[1]) * weight)
+
+
 class SwingCounter:
     """Counts distinct swings per player: a peak above ``threshold`` with a refractory period."""
 
@@ -823,6 +828,7 @@ def summarize_player_tracks(rows: list[dict[str, str]]) -> dict[str, Any]:
         summary["heatmap"][line][column] += 1
         last = previous.get(player_id)
         if last is not None and 0 < time_seconds - last[0] <= 0.5:
+            x, y = smooth_point(last[1:], (x, y))
             step = math.dist((x, y), last[1:])
             if step <= 9.0 * (time_seconds - last[0]):  # reject homography jumps
                 summary["distance_meters"] += step

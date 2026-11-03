@@ -37,6 +37,7 @@ class LiveManager:
         ffmpeg: Path | None = None,
         studio_config: Callable[[], Path | None] | Path | None = None,
         session_factory: type[LiveSession] = LiveSession,
+        image_sizes: tuple[int | None, int | None] = (None, None),
     ):
         self.library = library
         self.pose_model = pose_model
@@ -46,6 +47,7 @@ class LiveManager:
         self.ffmpeg = ffmpeg
         self._studio_config = studio_config
         self.session_factory = session_factory
+        self.image_sizes = image_sizes
         self.session: LiveSession | None = None
         self.lock = threading.Lock()
 
@@ -107,7 +109,15 @@ class LiveManager:
             if self.config.exists() and match_format_from_config(self.config) != match_format:
                 self._set_match_format(match_format)
             self.session = self.session_factory(
-                LiveSettings(source=source, match_format=match_format, shuttle=flags["shuttle"], record=flags["record"], loop=flags["loop"]),
+                LiveSettings(
+                    source=source,
+                    match_format=match_format,
+                    shuttle=flags["shuttle"],
+                    record=flags["record"],
+                    loop=flags["loop"],
+                    pose_image_size=self.image_sizes[0],
+                    shuttle_image_size=self.image_sizes[1],
+                ),
                 self.config if self.config.exists() else None,
                 self.recordings,
                 pose_model=self.pose_model if self._available(self.pose_model) else None,
@@ -244,6 +254,18 @@ def add_live_routes(app: Any, manager: LiveManager) -> None:
         if size == 0:
             temporary.unlink(missing_ok=True)
             raise ValueError("The recording is empty")
+        if manager.ffmpeg is not None:
+            # MediaRecorder writes no duration or seek index; a stream-copy remux adds both without re-encoding.
+            remuxed = subprocess.run(
+                [str(manager.ffmpeg), "-hide_banner", "-loglevel", "error", "-y", "-i", str(temporary), "-map", "0", "-c", "copy",
+                 "-f", "mp4" if destination.suffix == ".mp4" else "webm", str(destination)],
+                capture_output=True,
+                check=False,
+            )
+            if remuxed.returncode == 0:
+                temporary.unlink(missing_ok=True)
+                return {"path": str(destination), "bytes": destination.stat().st_size}
+            destination.unlink(missing_ok=True)
         temporary.replace(destination)
         return {"path": str(destination), "bytes": size}
 
@@ -356,6 +378,8 @@ def run_live(
     packages: Path | None = None,
     ffmpeg: Path | None = None,
     open_browser: bool = False,
+    pose_size: int | None = None,
+    shuttle_size: int | None = None,
 ) -> None:
     """Serve only the live page; with ``source`` the session starts immediately."""
     import webbrowser
@@ -377,6 +401,7 @@ def run_live(
         resolve_model(rally_model, "rally", library),
         packages,
         ffmpeg_path,
+        image_sizes=(pose_size, shuttle_size),
     )
     if source is not None:
         manager.start({"source": source, "match_format": match_format, "shuttle": shuttle and manager._available(manager.shuttle_model), "record": record})

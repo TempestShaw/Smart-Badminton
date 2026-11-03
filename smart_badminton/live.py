@@ -40,6 +40,7 @@ from .players import (
     player_label,
     players_per_side,
     side_features,
+    smooth_point,
 )
 
 LIVE_START_THRESHOLD = 0.56
@@ -508,7 +509,8 @@ class LiveAnalyzer:
         self.model = RallyModelRunner(rally_model) if rally_model else None
         self.audio = audio
         self.rallies = LiveRallyDetector()
-        self.swings = SwingCounter()
+        # Wrist speed is averaged over longer intervals at live frame rates, so swings peak lower than at 10 fps.
+        self.swings = SwingCounter(threshold=0.35)
         self.players: dict[str, PlayerStats] = {}
         self.painter = PlayerPainter()
         self.possession: tuple[str, str, float] | None = None
@@ -559,14 +561,17 @@ class LiveAnalyzer:
             if not observation.detected:
                 continue
             if observation.court is not None:
+                court = observation.court
                 if stats.last_court is not None and stats.last_time is not None and 0 < time_seconds - stats.last_time <= 0.6:
-                    step = math.dist(observation.court, stats.last_court)
+                    # Smooth foot jitter first; summing raw jitter would inflate distance by a third or more.
+                    court = smooth_point(stats.last_court, observation.court)
+                    step = math.dist(court, stats.last_court)
                     if step <= 9.0 * (time_seconds - stats.last_time):
                         stats.distance_meters += step
                         if self.rallies.current is not None:
                             stats.rally_distance_meters += step
-                stats.last_court, stats.last_time = observation.court, time_seconds
-                stats.trail.append(observation.court)
+                stats.last_court, stats.last_time = court, time_seconds
+                stats.trail.append(court)
                 if observation.speed_meters_per_second is not None:
                     stats.max_speed_meters_per_second = max(
                         stats.max_speed_meters_per_second, min(9.0, observation.speed_meters_per_second)
@@ -849,6 +854,8 @@ class LiveSettings:
     stream_width: int = 960
     jpeg_quality: int = 72
     loop: bool = False
+    pose_image_size: int | None = None  # default: 640 on CUDA, 480 on CPU
+    shuttle_image_size: int | None = None  # default: 960 on CUDA, 640 on CPU
 
 
 class LiveSession:
@@ -881,8 +888,7 @@ class LiveSession:
         self.error: str | None = None
         self.started_at = time.time()
         self.processed = 0
-        self.processing_times: deque[float] = deque(maxlen=30)
-        self.latency_times: deque[float] = deque(maxlen=30)
+        self.analyzed_at: deque[float] = deque(maxlen=30)  # wall-clock times of analysed frames
         self.jpeg: bytes | None = None
         self.raw_jpeg: bytes | None = None
         self.raw_size: tuple[int, int] | None = None
@@ -944,6 +950,8 @@ class LiveSession:
                 self.settings.match_format,
                 packages=self.packages,
                 audio=self.audio,
+                pose_image_size=self.settings.pose_image_size,
+                shuttle_image_size=self.settings.shuttle_image_size,
                 **self.models,
             )
             return self.analyzer
@@ -961,7 +969,6 @@ class LiveSession:
                 sequence = current
                 if frame is None:
                     continue
-                received = time.monotonic()
                 self.raw_size = (frame.shape[1], frame.shape[0])
                 self.raw_jpeg = None  # encoded lazily for calibration snapshots
                 self._raw_frame = frame
@@ -973,7 +980,8 @@ class LiveSession:
                     annotated = analyzer.annotate(capture_time)
                     self.stats = analyzer.snapshot()
                 self.processed += 1
-                self.processing_times.append(time.monotonic() - received)
+                if analyzer is not None:
+                    self.analyzed_at.append(time.monotonic())
                 self._publish(annotated, capture_time)
             if self.source.error:
                 raise RuntimeError(self.source.error)
@@ -1008,7 +1016,10 @@ class LiveSession:
         return self.raw_jpeg
 
     def status(self) -> dict[str, Any]:
-        processing = float(np.mean(self.processing_times)) if self.processing_times else 0.0
+        times = self.analyzed_at
+        rate = (len(times) - 1) / (times[-1] - times[0]) if len(times) > 1 and times[-1] > times[0] else 0.0
+        if times and time.monotonic() - times[-1] > 2.0:
+            rate = 0.0  # analysis has stalled or the source stopped sending frames
         return {
             "state": self.state,
             "error": self.error,
@@ -1018,7 +1029,7 @@ class LiveSession:
             "started_at": self.started_at,
             "frames_received": self.source.frames,
             "frames_analyzed": self.processed,
-            "analysis_fps": round(1.0 / processing, 1) if processing > 0 else 0.0,
+            "analysis_fps": round(rate, 1),
             "source_fps": round(self.source.fps, 1),
             "frame_size": list(self.raw_size) if self.raw_size else None,
             "recording": str(self.recording_path) if self.recording_path else None,

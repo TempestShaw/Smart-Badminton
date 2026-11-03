@@ -15,7 +15,7 @@ from ..io import read_rows
 from ..project_layout import ProjectLayout
 from .state import StudioState
 
-VIDEO_EXTENSIONS = {".mp4", ".mov", ".mkv", ".avi"}
+VIDEO_EXTENSIONS = {".mp4", ".mov", ".mkv", ".avi", ".webm"}  # .webm: phone recordings from the live page
 EXCLUDED_VIDEO_DIRECTORIES = {
     ".git",
     ".tools",

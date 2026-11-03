@@ -51,7 +51,8 @@ Smart Badminton 把固定机位拍摄的羽毛球录像整理成回合精彩片�
 | 开始使用 | [打开网页版](https://smart-badminton-tau.vercel.app/) | 安装并运行本地 Studio |
 | 回合识别 | 轻量画面活动分析 | 经过球场校准的多模态分析 |
 | 剪辑 | 边界调整、分割／新增／删除、本机时间轴保存 | 详细时间轴、逐帧微调、撤销／重做、成片预览 |
-| 分析 | 候选回合片段 | Hybrid 羽球追踪、人物姿态和基于证据的比分计算 |
+| 分析 | 候选回合片段 | Hybrid 羽球追踪、单打和双打球员跟踪、基于证据的比分计算 |
+| 实时 | — | 用摄像头或手机实时统计回合、拍数和球员数据 |
 | 输出 | 浏览器 WebAssembly 输出 MP4 | 本机 FFmpeg 从原始录像渲染 |
 | 配置 | 无需安装 | Python；视觉分析另外需要模型和球场校准 |
 
@@ -90,6 +91,16 @@ smart-badminton install-models --directory models
 
 [版本下载](https://github.com/TempestShaw/Smart-Badminton/releases)也提供 Python wheel 和独立的离线模型包。标签版本可能晚于 `main` 的最新更新。
 
+## 边打边看实时数据
+
+把一台电脑放在场边，用手机观看：
+
+```bash
+smart-badminton live --library /path/to/matches --host 0.0.0.0
+```
+
+在同一 Wi-Fi 下的任意设备上打开终端打印的地址。可以选择电脑摄像头、视频流或网络摄像头地址；加上 `--https` 后也可以直接用手机自己的摄像头。每个机位只需点一次单打场地四角，页面就会实时显示回合计时、每回合拍数，以及每位被跟踪球员（双打每边两人）的跑动距离、速度、挥拍、击球和站位。勾选 **同时录像**，结束后可以在 Studio 里做完整、可编辑的剪辑。详见[实时分析](docs/live.zh-CN.md)。
+
 ## 直接在终端中使用
 
 校对后的时间表是一个小型 CSV 文件。将以下示例保存为 `rallies.csv`，并使用时长足够覆盖这些区间的录像：
@@ -111,6 +122,7 @@ CLI 也提供独立的特征提取、回合预测、羽球追踪、比分分析�
 ## 探索与贡献
 
 - [简体中文使用指南](docs/studio-tutorial.zh-CN.md)和[英文使用指南](docs/studio-tutorial.en.md)。
+- [实时分析](docs/live.zh-CN.md)和[英文版](docs/live.en.md)。
 - [架构](docs/architecture.md)、[本地 Studio API](docs/studio-api.md)和[网页部署](docs/deployment.md)。
 - [模型卡](models/MODEL_CARD.md)、[模型配置](models/README.md)和[进阶研究工作流](docs/advanced-workflows.md)。
 - [合成示例项目](examples/privacy_safe_sample)：包含元数据和标注，不含真实人物、场馆录像或音频。
