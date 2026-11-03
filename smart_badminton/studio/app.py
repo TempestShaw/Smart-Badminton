@@ -11,7 +11,7 @@ from functools import lru_cache
 from pathlib import Path
 from typing import Any
 
-from ..io import load_rallies
+from ..io import load_rallies, resolve_ffmpeg
 from ..model_assets import resolve_model
 from ..phase_examples import capture_phase_examples
 from ..pose_overlay import render_pose_overlay
@@ -25,6 +25,7 @@ from .insights import (
     analytics_payload,
     calculate_score_payload,
     evidence_payload,
+    players_payload,
     score_label_paths,
     score_labeling_payload,
     score_payload,
@@ -61,6 +62,7 @@ from .shuttle import (
     shuttle_annotation_payload,
     shuttle_status_payload,
 )
+from .live_routes import LiveManager, add_live_routes, serve
 from .state import API_SCHEMA_VERSION, StudioState, restore_analysis_status
 
 LOOPBACK_HOSTS = ["127.0.0.1", "localhost", "[::1]"]
@@ -125,7 +127,28 @@ class HostCheckMiddleware:
         await self.app(scope, receive, send)
 
 
-def create_studio_app(state: StudioState, allowed_hosts: list[str] | None = None, allow_local_ips: bool = False):
+def live_manager_for(state: StudioState) -> LiveManager:
+    try:
+        ffmpeg: Path | None = resolve_ffmpeg(state.ffmpeg)
+    except (FileNotFoundError, RuntimeError):
+        ffmpeg = None
+    return LiveManager(
+        state.library_root,
+        state.pose_model,
+        state.shuttle_model,
+        state.model,
+        state.packages,
+        ffmpeg,
+        lambda: state.config if state.config_ready() else None,
+    )
+
+
+def create_studio_app(
+    state: StudioState,
+    allowed_hosts: list[str] | None = None,
+    allow_local_ips: bool = False,
+    live: LiveManager | None = None,
+):
     try:
         from fastapi import FastAPI, HTTPException, Request
         from fastapi.middleware.cors import CORSMiddleware
@@ -194,7 +217,9 @@ def create_studio_app(state: StudioState, allowed_hosts: list[str] | None = None
 
     @app.get("/api/health")
     def health():
-        return {"ok": True, "api_schema_version": API_SCHEMA_VERSION, "runtime": runtime_payload(state)}
+        return {"ok": True, "mode": "studio", "api_schema_version": API_SCHEMA_VERSION, "runtime": runtime_payload(state)}
+
+    add_live_routes(app, live or live_manager_for(state))
 
     @app.get("/api/tutorial")
     def tutorial(language: str = "zh"):
@@ -247,6 +272,7 @@ def create_studio_app(state: StudioState, allowed_hosts: list[str] | None = None
             "score": score_payload(state),
             "score_labeling": score_labeling_payload(state),
             "evidence": evidence_payload(state),
+            "players": players_payload(state),
         }
 
     @app.get("/api/project")
@@ -359,6 +385,10 @@ def create_studio_app(state: StudioState, allowed_hosts: list[str] | None = None
     @app.get("/api/analytics")
     def analytics():
         return analytics_payload(state)
+
+    @app.get("/api/players")
+    def players():
+        return players_payload(state)
 
     @app.get("/api/score")
     def score():
@@ -699,11 +729,12 @@ def run_studio(
     inpaint_model: Path | None = None,
     shuttle_mode: str = "hybrid",
     tracknet_packages: Path | None = None,
+    https: bool = False,
 ) -> None:
     if tracknet_packages is not None and str(tracknet_packages) not in sys.path:
         sys.path.insert(0, str(tracknet_packages))
     try:
-        import uvicorn
+        import uvicorn  # noqa: F401 - fail before scanning the library when Studio extras are missing
     except ImportError as error:
         raise RuntimeError(MISSING_STUDIO_DEPENDENCIES) from error
     if video is None:
@@ -734,9 +765,13 @@ def run_studio(
         tracknet_packages=tracknet_packages,
     )
     # Binding beyond loopback is an explicit opt-in to LAN access, so accept that interface's Host header too.
-    app = create_studio_app(state, allowed_hosts_for(host), allow_local_ips=host in WILDCARD_BINDS)
-    url = f"http://{host}:{port}"
-    print(f"Smart Badminton Studio: {url}")
+    hosts = allowed_hosts_for(host)
+    live = live_manager_for(state)
+    app = create_studio_app(state, hosts, allow_local_ips=host in WILDCARD_BINDS, live=live)
+    url = f"{'https' if https else 'http'}://{'127.0.0.1' if host in WILDCARD_BINDS else host}:{port}"
     if open_browser:
         threading.Timer(0.8, lambda: webbrowser.open(url)).start()
-    uvicorn.run(app, host=host, port=port, log_level="info")
+    try:
+        serve(app, host, port, library / ".smart-badminton" / "tls" if https else None, hosts)
+    finally:
+        live.stop()

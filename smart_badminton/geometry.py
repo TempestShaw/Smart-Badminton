@@ -10,6 +10,15 @@ import numpy as np
 
 Point = tuple[float, float]
 
+# Court coordinates span the full doubles court: x across 0–6.1 m from the near-left doubles sideline, y along
+# 0–13.4 m from the near baseline. Studio asks for the four *singles* corners (near left → near right → far right →
+# far left), whose sidelines sit 0.46 m inside the doubles sidelines.
+SINGLES_SIDELINE_INSET_METERS = 0.46
+SINGLES_CORNERS_METERS = np.asarray(
+    [[0.46, 0.0], [5.64, 0.0], [5.64, 13.4], [0.46, 13.4]],
+    dtype=np.float32,
+)
+
 
 def _points(value: Iterable[Iterable[float]]) -> list[Point]:
     return [(float(x), float(y)) for x, y in value]
@@ -183,8 +192,7 @@ class CourtGeometry:
         if not self.court_corners or len(self.court_corners) != 4:
             return None
         image = self.denormalize(self.court_corners, width, height).astype(np.float32)
-        court = np.asarray([[0.0, 0.0], [6.1, 0.0], [6.1, 13.4], [0.0, 13.4]], dtype=np.float32)
-        return cv2.getPerspectiveTransform(image, court)
+        return cv2.getPerspectiveTransform(image, SINGLES_CORNERS_METERS)
 
     def image_to_court(self, point: Point, width: int, height: int) -> Point | None:
         matrix = self.homography_to_court(width, height)
@@ -221,10 +229,7 @@ class CourtGeometry:
             perturbed = image + jitter
             if not cv2.isContourConvex(perturbed.astype(np.int32)):
                 continue
-            candidate = cv2.getPerspectiveTransform(
-                perturbed,
-                np.asarray([[0.0, 0.0], [6.1, 0.0], [6.1, 13.4], [0.0, 13.4]], dtype=np.float32),
-            )
+            candidate = cv2.getPerspectiveTransform(perturbed, SINGLES_CORNERS_METERS)
             mapped = cv2.perspectiveTransform(image_grid, candidate)
             errors.extend(np.linalg.norm(mapped - court_grid, axis=2).ravel().tolist())
         if not errors:

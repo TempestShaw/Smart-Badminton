@@ -1024,7 +1024,7 @@ def test_studio_analysis_pipeline_publishes_editable_timeline(tmp_path: Path, pa
     def fake_audio(_video, output, **_kwargs):
         output.write_text("time_seconds,score\n", encoding="utf-8")
 
-    def fake_features(_video, _config, output, *_args):
+    def fake_features(_video, _config, output, *_args, **_kwargs):
         output.write_text("time_seconds\n0\n", encoding="utf-8")
 
     def fake_predict(_features, _model, output):

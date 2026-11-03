@@ -23,6 +23,7 @@ CONTACT_FIELDS = [
     "direction_change_score",
     "swing_score",
     "audio_score",
+    "player_id",
 ]
 
 REQUIRED_FEATURES = {
@@ -120,15 +121,39 @@ def infer_contact_events(frame: pd.DataFrame) -> list[dict[str, Any]]:
     return clustered
 
 
+def attribute_players(events: list[dict[str, Any]], player_tracks: pd.DataFrame | None) -> None:
+    """Name the hitter of each contact: on the hitting side, the tracked player whose wrist is nearest the shuttle."""
+    for event in events:
+        event["player_id"] = ""
+    if player_tracks is None or player_tracks.empty:
+        return
+    tracks = player_tracks.loc[player_tracks["status"].eq("detected")].copy()
+    for name in ("time_seconds", "wrist_x_normalized", "wrist_y_normalized", "foot_x_normalized", "foot_y_normalized"):
+        tracks[name] = pd.to_numeric(tracks[name], errors="coerce")
+    for event in events:
+        nearby = tracks.loc[
+            tracks["side"].eq(event["player"]) & (tracks["time_seconds"] - float(event["time_seconds"])).abs().le(0.06)
+        ]
+        if nearby.empty:
+            continue
+        wrist_x = nearby["wrist_x_normalized"].fillna(nearby["foot_x_normalized"])
+        wrist_y = nearby["wrist_y_normalized"].fillna(nearby["foot_y_normalized"])
+        distance = np.hypot(wrist_x - float(event["shuttle_x_normalized"]), wrist_y - float(event["shuttle_y_normalized"]))
+        event["player_id"] = str(nearby.loc[distance.idxmin(), "player_id"])
+
+
 def analyze_contacts(
     features_csv: Path,
     rallies_csv: Path,
     output_csv: Path,
     summary_json: Path | None = None,
+    player_tracks_csv: Path | None = None,
 ) -> dict[str, Any]:
     features = pd.read_csv(features_csv)
     available = REQUIRED_FEATURES.issubset(features.columns)
     events = infer_contact_events(features) if available else []
+    tracks = pd.read_csv(player_tracks_csv) if player_tracks_csv is not None and player_tracks_csv.exists() else None
+    attribute_players(events, tracks)
     rallies = load_rallies(rallies_csv)
     assigned = []
     for event in events:
@@ -166,6 +191,10 @@ def analyze_contacts(
         "rallies_with_contacts": sum(bool(events) for events in by_rally.values()),
         "last_hitter_by_rally": {
             str(number): events[-1]["player"] for number, events in by_rally.items() if events
+        },
+        "hits_by_player": {
+            player_id: sum(1 for event in assigned if event["player_id"] == player_id)
+            for player_id in sorted({str(event["player_id"]) for event in assigned} - {""})
         },
         "disclaimer": (
             "Contact candidates require shuttle proximity to the active wrist plus swing, direction-change or audio "

@@ -90,6 +90,8 @@ def main() -> None:
     feature.add_argument("--fps", type=float)
     feature.add_argument("--start", type=float, default=0.0)
     feature.add_argument("--end", type=float)
+    feature.add_argument("--player-tracks", type=path, help="also write tracked players (player-tracks.csv)")
+    feature.add_argument("--match-format", choices=["singles", "doubles"], help="overrides the config's match_format")
     shuttle = commands.add_parser("detect-shuttle")
     shuttle.add_argument("--video", type=path, required=True)
     shuttle.add_argument("--config", type=path, required=True)
@@ -293,6 +295,22 @@ def main() -> None:
     studio.add_argument("--shuttle-mode", choices=["yolo", "tracknet", "hybrid"], default="hybrid")
     studio.add_argument("--tracknet-packages", type=path)
     studio.add_argument("--packages", type=path)
+    studio.add_argument("--https", action="store_true", help="serve HTTPS so phones on the LAN can share their camera")
+    live = commands.add_parser("live", help="real-time analysis of a camera, stream or phone; open the page on any device")
+    live.add_argument("--library", type=path, default=Path("."), help="where recordings and the live calibration are kept")
+    live.add_argument("--source", help="camera number (0), stream URL, video file, or 'browser' for a phone camera")
+    live.add_argument("--match-format", choices=["singles", "doubles"], default="singles")
+    live.add_argument("--no-shuttle", action="store_true", help="skip shuttle detection (faster on CPU)")
+    live.add_argument("--record", action="store_true")
+    live.add_argument("--host", default="0.0.0.0")
+    live.add_argument("--port", type=int, default=8765)
+    live.add_argument("--https", action="store_true", help="needed for a phone's browser camera")
+    live.add_argument("--open", action="store_true")
+    live.add_argument("--pose-model", type=path)
+    live.add_argument("--shuttle-model", type=path)
+    live.add_argument("--model", type=path, help="rally-state model")
+    live.add_argument("--packages", type=path)
+    live.add_argument("--ffmpeg", type=path)
 
     args = parser.parse_args()
 
@@ -366,6 +384,8 @@ def main() -> None:
             args.fps,
             args.start,
             args.end,
+            player_tracks_output=args.player_tracks,
+            match_format=args.match_format,
         )
     elif args.command == "detect-shuttle":
         print(
@@ -648,4 +668,24 @@ def main() -> None:
             args.inpaint_model,
             args.shuttle_mode,
             args.tracknet_packages,
+            args.https,
+        )
+    elif args.command == "live":
+        from .studio.live_routes import run_live
+
+        run_live(
+            args.library,
+            args.host,
+            args.port,
+            args.source,
+            args.match_format,
+            not args.no_shuttle,
+            args.record,
+            args.https,
+            args.pose_model,
+            args.shuttle_model,
+            args.model,
+            args.packages,
+            args.ffmpeg,
+            args.open,
         )
