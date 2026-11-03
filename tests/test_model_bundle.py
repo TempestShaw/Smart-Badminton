@@ -10,6 +10,8 @@ def test_model_bundle_has_every_runtime_role_and_license() -> None:
         "yolo11s-ball.pt",
         "TrackNet_best.pt",
         "InpaintNet_best.pt",
+        "yolo11n-pose.onnx",
+        "yolo11n-pose-int8.onnx",
     ):
         assert f"models/{name}" in targets
         assert f"models/{name}.license.json" in targets

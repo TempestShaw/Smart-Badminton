@@ -33,6 +33,9 @@ MATCH_FORMATS = {"singles": 1, "doubles": 2}
 COURT_LENGTH_METERS = 13.4
 COURT_WIDTH_METERS = 6.1
 NET_Y_METERS = COURT_LENGTH_METERS / 2
+LOST_MATCH_APPEARANCE = 0.5  # Bhattacharyya distance above which a lost slot will not take a new person...
+LOST_MATCH_PATIENCE = 4.0  # ...for this many seconds; after that a mismatch only weighs in (capped below)
+LOST_MATCH_CAP = 0.6  # so a slot first taken by the wrong person (an umpire, a coach) can still pass to the player
 MAXIMUM_PLAYER_SPEED = 6.0  # m/s (or tracking units per second without corner calibration)
 LEFT_WRIST, RIGHT_WRIST = 9, 10
 LEFT_ANKLE, RIGHT_ANKLE = 15, 16
@@ -166,10 +169,32 @@ class CourtFrame:
         self.width = width
         self.height = height
         self.matrix = geometry.homography_to_court(width, height)
+        self._upright: bool | None = None
 
     @property
     def metric(self) -> bool:
         return self.matrix is not None
+
+    @property
+    def upright_view(self) -> bool:
+        """True for cameras behind a baseline, where players stand tall and the far court shrinks in the image.
+
+        From overhead (a drone) or square-on, people's boxes are about as wide as they are tall, so box-shape
+        heuristics must not apply. Without corner calibration, an upright view is assumed.
+        """
+        if self.matrix is None:
+            return True
+        if self._upright is not None:
+            return self._upright
+        near = [self.image_point(point) for point in ((0.46, 0.0), (5.64, 0.0))]
+        far = [self.image_point(point) for point in ((0.46, 13.4), (5.64, 13.4))]
+        self._upright = math.dist(*near) > math.dist(*far) * 1.25
+        return self._upright
+
+    def image_point(self, court: tuple[float, float]) -> tuple[float, float]:
+        inverse = np.linalg.inv(self.matrix)
+        mapped = cv2.perspectiveTransform(np.asarray([[court]], dtype=np.float32), inverse)[0, 0]
+        return float(mapped[0]), float(mapped[1])
 
     def court_point(self, foot: tuple[float, float]) -> tuple[float, float] | None:
         if self.matrix is None:
@@ -251,7 +276,7 @@ def court_detections(
                 court=court_point,
                 appearance=torso_histogram(frame, box, keypoints, confidences),
                 # Chairs, bags and seated officials are wider than a standing far player; they may not claim a slot.
-                spawnable=not (side == "far" and aspect < 1.1),
+                spawnable=not (court.upright_view and side == "far" and aspect < 1.1),
             )
         )
     return detections
@@ -319,8 +344,15 @@ class PlayerTracker:
         motion = min(1.0, distance / gate)
         appearance = appearance_distance(track.appearance, detection.appearance)
         if lost:
-            # A lost slot is re-identified by appearance; position only breaks ties.
-            return (appearance if appearance is not None else 0.5) + motion * 0.15
+            # A lost slot is re-identified by appearance; position only breaks ties. A clearly different shirt is
+            # someone else (often the partner, whose own slot is momentarily unmatched).
+            # After a long absence lighting may have changed the colours, so the slot is reopened to anyone.
+            absent = time_seconds - track.last_time
+            if appearance is None:
+                return 0.5 + motion * 0.15
+            if absent < LOST_MATCH_PATIENCE:
+                return math.inf if appearance > LOST_MATCH_APPEARANCE else appearance + motion * 0.15
+            return min(appearance, LOST_MATCH_CAP) + motion * 0.15
         if appearance is None:
             return motion
         return motion * (1.0 - self.appearance_weight * 0.5) + appearance * self.appearance_weight

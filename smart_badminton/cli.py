@@ -57,6 +57,9 @@ def main() -> None:
     model_install = commands.add_parser("install-models")
     model_install.add_argument("--directory", type=path, default=Path.cwd() / "models")
     model_install.add_argument("--force", action="store_true")
+    ondevice_export = commands.add_parser("export-ondevice-models")
+    ondevice_export.add_argument("--directory", type=path, default=Path.cwd() / "models")
+    ondevice_export.add_argument("--calibration", type=path, help="COCO-pose style folder (images/, labels/); default COCO8-pose")
     shuttle_audit = commands.add_parser("audit-shuttle-dataset")
     shuttle_audit.add_argument("--manifest", type=path, required=True)
     shuttle_train = commands.add_parser("train-shuttle")
@@ -347,6 +350,10 @@ def main() -> None:
         print(json.dumps(initialize_project(args.directory), ensure_ascii=False, indent=2))
     elif args.command == "install-models":
         print(json.dumps(install_models(args.directory, args.force), ensure_ascii=False, indent=2))
+    elif args.command == "export-ondevice-models":
+        from .ondevice_models import export_ondevice_models
+
+        print(json.dumps(export_ondevice_models(args.directory, args.calibration), ensure_ascii=False, indent=2))
     elif args.command == "audit-shuttle-dataset":
         print(json.dumps(audit_shuttle_dataset(args.manifest), ensure_ascii=False, indent=2))
     elif args.command == "train-shuttle":

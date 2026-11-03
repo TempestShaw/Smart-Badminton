@@ -9,6 +9,7 @@ from pathlib import Path
 
 from smart_badminton.doctor import inspect_model_license
 from smart_badminton.model_assets import DOWNLOADABLE_MODELS, MODEL_FILENAMES
+from smart_badminton.ondevice_models import ONDEVICE_MODELS
 
 ROOT = Path(__file__).resolve().parents[1]
 MODELS = ROOT / "models"
@@ -23,7 +24,7 @@ def _version() -> str:
 
 
 def _bundle_files() -> list[tuple[Path, Path]]:
-    model_names = [MODEL_FILENAMES["rally"], *(asset.filename for asset in DOWNLOADABLE_MODELS)]
+    model_names = [MODEL_FILENAMES["rally"], *(asset.filename for asset in DOWNLOADABLE_MODELS), *ONDEVICE_MODELS]
     files: list[tuple[Path, Path]] = []
     for name in model_names:
         model = MODELS / name
@@ -47,7 +48,7 @@ def build_model_bundle(output_directory: Path) -> Path:
     if missing:
         raise RuntimeError(f"Model bundle inputs are missing: {missing}")
     for source, target in files:
-        if target.parts[:1] == ("models",) and source.suffix in {".pt", ".joblib"}:
+        if target.parts[:1] == ("models",) and source.suffix in {".pt", ".joblib", ".onnx"}:
             inspection = inspect_model_license(source)
             if inspection.get("redistributable") is not True:
                 raise RuntimeError(f"Model is not release-safe: {source.name}: {inspection.get('status')}")
@@ -60,13 +61,13 @@ def build_model_bundle(output_directory: Path) -> Path:
                 "sha256": hashlib.sha256(source.read_bytes()).hexdigest(),
             }
             for source, target in files
-            if source.suffix in {".pt", ".joblib"}
+            if source.suffix in {".pt", ".joblib", ".onnx"}
         ],
     }
     destination = output_directory.resolve() / f"{root_name}.zip"
     with zipfile.ZipFile(destination, "w") as archive:
         for source, target in files:
-            compression = zipfile.ZIP_STORED if source.suffix in {".pt", ".joblib"} else zipfile.ZIP_DEFLATED
+            compression = zipfile.ZIP_STORED if source.suffix in {".pt", ".joblib", ".onnx"} else zipfile.ZIP_DEFLATED
             archive.write(source, (Path(root_name) / target).as_posix(), compress_type=compression)
         archive.writestr(
             (Path(root_name) / "models" / "manifest.json").as_posix(),

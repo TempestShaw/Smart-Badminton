@@ -877,3 +877,10 @@ html[lang="en"] .score-heading > .eyebrow { white-space: nowrap; }
   .tool-panel-actions [data-slot="button"], .guide-footer [data-slot="button"] { max-width: 100%; min-height: 32px; height: auto; white-space: normal; }
   .guide-header, .guide-footer, .guide-footer-actions { flex-wrap: wrap; gap: 8px; }
 }
+
+/* On-device live: the camera preview with a drawn overlay. */
+.ondevice-stage video, .ondevice-stage canvas { position: absolute; inset: 0; width: 100%; height: 100%; }
+.ondevice-stage video { object-fit: contain; background: #050606; }
+.ondevice-stage canvas { pointer-events: none; }
+.ondevice-stage .live-corner-dot { z-index: 2; }
+.live-dashboard[hidden] { display: none; }

@@ -11,11 +11,12 @@ import { ThemeToggle } from "@/components/theme-controls";
 import { Brand } from "@/components/brand";
 import { BrowserQuickStudio } from "@/components/browser-quick-studio";
 import { LiveStudio } from "@/components/live-studio";
+import { OnDeviceLive } from "@/components/ondevice-live";
 import { StudioApp } from "@/components/studio-app";
 import { Button } from "@/components/ui/button";
 import { apiUrl } from "@/lib/api";
 
-type EngineMode = "detecting" | "browser" | "native" | "live";
+type EngineMode = "detecting" | "browser" | "native" | "live" | "device";
 type NativeView = "studio" | "live";
 
 function localStudioHost(): boolean {
@@ -55,6 +56,7 @@ export function EngineShell() {
       // Phones and tablets reaching Studio over the LAN usually come for the live view.
       setView(parameters.get("view") === "live" || (server !== null && !local && parameters.get("view") !== "studio") ? "live" : "studio");
       if (server === "live") setMode("live");
+      else if (requested === "device") setMode("device");
       else if (requested === "browser") setMode("browser");
       else if (requested === "native" || server === "studio") setMode("native");
       else setMode(local ? "native" : "browser");
@@ -77,7 +79,8 @@ export function EngineShell() {
 
   if (mode === "detecting") return <div className="engine-loading"><span className="loader" /></div>;
   if (mode === "live") return <LiveStudio />;
-  if (mode === "browser") return <BrowserQuickStudio onSwitchNative={() => switchMode("native")} />;
+  if (mode === "device") return <OnDeviceLive onBack={() => switchMode("browser")} />;
+  if (mode === "browser") return <BrowserQuickStudio onSwitchNative={() => switchMode("native")} onOpenLive={() => switchMode("device")} />;
   if (localHost || served) {
     if (view === "live") return <LiveStudio onBack={() => switchView("studio")} />;
     return <StudioApp onSwitchEngine={() => switchMode("browser")} onOpenLive={() => switchView("live")} />;

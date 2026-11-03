@@ -610,5 +610,20 @@
   "从四角推算全部区域": "Derive all regions from the corners",
   "双打（每边跟踪两人）": "Doubles (two players per side)",
   "球员数据（整场）": "Players (whole match)",
-  "挥拍 {{swings}} · 击球 {{hits}}": "{{swings}} swings · {{hits}} hits"
+  "挥拍 {{swings}} · 击球 {{hits}}": "{{swings}} swings · {{hits}} hits",
+  "本机实时分析": "On-device live",
+  "只用这部手机，边打边看": "Just this phone: watch while you play",
+  "球员跟踪和击球声识别都在这台设备上运行，画面和声音不会上传。把手机横放在底线后方高处，让整片场地入镜。": "Player tracking and hit-sound detection run on this device; no video or sound is uploaded. Mount the phone in landscape, high behind a baseline, with the whole court in view.",
+  "正在打开摄像头…": "Opening the camera…",
+  "打开摄像头并开始": "Open the camera and start",
+  "下次重新校准场地": "Recalibrate the court next time",
+  "摄像头需要 HTTPS 页面。": "The camera needs an HTTPS page.",
+  "四个角的顺序不对：近左 → 近右 → 远右 → 远左": "The corners are out of order: near left → near right → far right → far left",
+  "可以开始了": "Ready",
+  "推理 {{ms}} ms": "Inference {{ms}} ms",
+  "跟踪 {{count}} 人": "Tracking {{count}}",
+  "全场搜索": "Scanning the court",
+  "返回": "Back",
+  "这个网站还没有部署本机分析模型：运行 smart-badminton export-ondevice-models 后重新构建，或设置 ONDEVICE_MODELS_URL。": "This site has no on-device model yet: run smart-badminton export-ondevice-models and rebuild, or set ONDEVICE_MODELS_URL.",
+  "没有摄像头或麦克风权限，请在浏览器设置里允许后重试。": "Camera or microphone access was denied. Allow it in the browser settings and try again."
 }

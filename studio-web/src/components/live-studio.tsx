@@ -27,7 +27,7 @@ function playerName(player: Pick<LivePlayer, "player_id">): string {
   return `${side === "near" ? t("近场") : t("远场")} ${slot}`;
 }
 
-function Segmented<T extends string>({ value, options, onChange, label }: {
+export function Segmented<T extends string>({ value, options, onChange, label }: {
   value: T;
   options: { value: T; label: string; icon?: ReactNode; disabled?: boolean }[];
   onChange: (value: T) => void;
@@ -168,7 +168,7 @@ function CornerPicker({ live, status, onDone }: { live: LiveController; status: 
   );
 }
 
-function RallyPanel({ status }: { status: LiveStatus }) {
+export function RallyPanel({ status }: { status: Pick<LiveStatus, "analysis"> }) {
   const analysis = status.analysis;
   const current = analysis?.rally.current ?? null;
   return (
@@ -191,7 +191,7 @@ function RallyPanel({ status }: { status: LiveStatus }) {
   );
 }
 
-function PlayerCards({ players, metric }: { players: LivePlayer[]; metric: boolean }) {
+export function PlayerCards({ players, metric }: { players: LivePlayer[]; metric: boolean }) {
   if (!players.length) return <p className="live-hint">{t("等待球员进入场地…")}</p>;
   return (
     <div className="live-players">

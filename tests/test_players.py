@@ -245,3 +245,36 @@ def test_contacts_name_the_partner_whose_wrist_met_the_shuttle() -> None:
     attribute_players(events, tracks)
 
     assert events[0]["player_id"] == "near-2"
+
+
+def test_overhead_views_admit_wide_far_players_and_keep_lost_slots_for_their_own_shirt(tmp_path: Path) -> None:
+    # A drone looks straight down: the court is an undistorted rectangle and players' boxes are about square.
+    overhead = [[0.05, 0.2], [0.05, 0.8], [0.95, 0.8], [0.95, 0.2]]
+    regions = derive_regions_from_corners(overhead, WIDTH, HEIGHT, "doubles")
+    config = tmp_path / "overhead.json"
+    config.write_text(
+        json.dumps(
+            {
+                "reference_frame": {"width": WIDTH, "height": HEIGHT},
+                "calibration": {"court_corners_normalized": regions["court_corners_normalized"]},
+                "masks_normalized": regions["masks"],
+            }
+        ),
+        encoding="utf-8",
+    )
+    court = CourtFrame(CourtGeometry.from_json(config), WIDTH, HEIGHT)
+    frame = np.zeros((HEIGHT, WIDTH, 3), dtype=np.uint8)
+    foot = court.image_point((3.0, 10.0))
+    box = np.asarray([foot[0] - 30, foot[1] - 25, foot[0] + 30, foot[1] + 25])
+    keypoints = np.tile(foot, (17, 1)).astype(float)
+    far = court_detections(frame, [(box, 0.9, keypoints, np.ones(17))], court, "far", doubles=True)
+
+    assert court.upright_view is False
+    assert len(far) == 1 and far[0].spawnable
+
+    tracker = PlayerTracker(CourtFrame(court_geometry(tmp_path, "doubles"), WIDTH, HEIGHT), players=1)
+    behind = tracker.court
+    tracker.update([person(behind, 2.0, 3.0, "near", hue=1)], 0.0)
+    # Two seconds later a differently dressed person appears: the lost slot must not adopt them.
+    assert tracker.update([person(behind, 2.2, 3.1, "near", hue=8)], 2.0) == []
+    assert [item.player_id for item in tracker.update([person(behind, 2.2, 3.1, "near", hue=8)], 5.0)] == ["near-1"]
