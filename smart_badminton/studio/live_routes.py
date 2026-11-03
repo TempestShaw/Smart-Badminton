@@ -39,6 +39,7 @@ class LiveManager:
         studio_config: Callable[[], Path | None] | Path | None = None,
         session_factory: type[LiveSession] = LiveSession,
         image_sizes: tuple[int | None, int | None] = (None, None),
+        pose_focus_size: int = 256,
     ):
         self.library = library
         self.pose_model = pose_model
@@ -49,6 +50,7 @@ class LiveManager:
         self._studio_config = studio_config
         self.session_factory = session_factory
         self.image_sizes = image_sizes
+        self.pose_focus_size = pose_focus_size
         self.session: LiveSession | None = None
         self.lock = threading.Lock()
 
@@ -118,6 +120,7 @@ class LiveManager:
                     loop=flags["loop"],
                     pose_image_size=self.image_sizes[0],
                     shuttle_image_size=self.image_sizes[1],
+                    pose_focus_size=self.pose_focus_size,
                 ),
                 self.config if self.config.exists() else None,
                 self.recordings,
@@ -401,6 +404,7 @@ def run_live(
     open_browser: bool = False,
     pose_size: int | None = None,
     shuttle_size: int | None = None,
+    pose_focus_size: int = 256,
 ) -> None:
     """Serve only the live page; with ``source`` the session starts immediately."""
     import webbrowser
@@ -423,6 +427,7 @@ def run_live(
         packages,
         ffmpeg_path,
         image_sizes=(pose_size, shuttle_size),
+        pose_focus_size=pose_focus_size,
     )
     if source is not None:
         manager.start({"source": source, "match_format": match_format, "shuttle": shuttle and manager._available(manager.shuttle_model), "record": record})

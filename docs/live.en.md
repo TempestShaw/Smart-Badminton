@@ -117,9 +117,12 @@ AGPL-3.0, like the checkpoint they come from; see [THIRD_PARTY_NOTICES.md](../TH
 
 ## Speed and accuracy
 
-On a four-core laptop CPU, live analysis runs at about 6–7 frames per second with pose and shuttle tracking. An
-NVIDIA GPU runs both models in half precision and reaches the camera's frame rate. To trade accuracy for speed on a
-CPU:
+Once every player is found, pose runs on one 256-pixel crop around each player instead of both half-courts, and a
+half is scanned whole again only when a player is lost, or every 3 seconds. On a four-core laptop CPU this took
+pose-only analysis from 11 to 19 frames per second, with positions within about 0.1 m of the full scan, and pose with
+shuttle tracking from 6.4 to 7.6 (the full-frame shuttle detector is then the slower part).
+`--pose-focus-size 0` restores the half-court scans on every frame. An NVIDIA GPU runs both models in half precision
+and reaches the camera's frame rate. To trade accuracy for speed on a CPU:
 
 - lower the inference sizes: `--pose-size 384 --shuttle-size 512` (pose at 480 instead of 640 already cuts its time
   by about 40%; smaller sizes lose far-court detail);

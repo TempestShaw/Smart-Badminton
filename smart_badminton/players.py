@@ -342,6 +342,23 @@ class PlayerTracker:
         self.tracks: dict[str, list[_Track]] = {side: [] for side in SIDES}
         self.diagonal = math.hypot(court.width, court.height)
 
+    def regions(self, time_seconds: float, recent: float = 0.6) -> tuple[list[tuple[str, np.ndarray, float]], list[str]]:
+        """Where to look next: ``(side, last box in pixels, age)`` of every player seen within ``recent`` seconds, and
+        the halves that need a full scan because a slot is empty or its player has been missing longer than that."""
+        tracked: list[tuple[str, np.ndarray, float]] = []
+        missing: list[str] = []
+        for side in SIDES:
+            complete = len(self.tracks[side]) >= self.players
+            for track in self.tracks[side]:
+                age = time_seconds - track.last_time
+                if age > recent or track.last_detection is None:
+                    complete = False
+                else:
+                    tracked.append((side, np.asarray(track.last_detection.box, dtype=float), age))
+            if not complete:
+                missing.append(side)
+        return tracked, missing
+
     def _gate(self, track: _Track, time_seconds: float) -> float:
         dt = max(0.05, time_seconds - track.last_time)
         return min(6.0, 1.4 + 5.0 * dt)  # players move at most ~6 m/s
@@ -662,18 +679,21 @@ class PoseEstimator:
 
     def people(self, frame: np.ndarray) -> list[tuple[str, list[tuple[np.ndarray, float, np.ndarray, np.ndarray | None]]]]:
         height, width = frame.shape[:2]
-        crops, offsets = [], []
-        for side in SIDES:
-            x1, y1, x2, y2 = self.geometry.player_inference_bounds(side, width, height)
-            crops.append(frame[y1:y2, x1:x2])
-            offsets.append((x1, y1))
+        regions = [(side, *self.geometry.player_inference_bounds(side, width, height)) for side in SIDES]
+        return self.people_in(frame, regions, self.image_size)
+
+    def people_in(
+        self, frame: np.ndarray, regions: list[tuple[str, int, int, int, int]], image_size: int
+    ) -> list[tuple[str, list[tuple[np.ndarray, float, np.ndarray, np.ndarray | None]]]]:
+        """People in each ``(side, x1, y1, x2, y2)`` crop, in full-frame pixels, from one batched inference."""
+        if not regions:
+            return []
+        crops = [frame[y1:y2, x1:x2] for _side, x1, y1, x2, y2 in regions]
         # FP16 roughly doubles GPU throughput with no measurable keypoint loss; CPUs stay in FP32.
         precision = {"half": True} if self.cuda else {}
-        results = self.model.predict(
-            crops, imgsz=self.image_size, conf=self.confidence, device=self.device, verbose=False, **precision
-        )
+        results = self.model.predict(crops, imgsz=image_size, conf=self.confidence, device=self.device, verbose=False, **precision)
         output = []
-        for side, result, (offset_x, offset_y) in zip(SIDES, results, offsets):
+        for (side, offset_x, offset_y, _x2, _y2), result in zip(regions, results):
             people = []
             if result.boxes is not None and result.keypoints is not None and result.keypoints.xy is not None:
                 boxes = result.boxes.xyxy.detach().cpu().numpy()
@@ -697,6 +717,70 @@ class PoseEstimator:
         detections = []
         for side, people in self.people(frame):
             detections.extend(court_detections(frame, people, court, expected_side=side, doubles=doubles))
+        return detections
+
+
+def _box_overlap(first: np.ndarray, second: np.ndarray) -> float:
+    """Intersection over the smaller box: the same person seen by two overlapping crops scores near 1."""
+    width = min(first[2], second[2]) - max(first[0], second[0])
+    height = min(first[3], second[3]) - max(first[1], second[1])
+    if width <= 0 or height <= 0:
+        return 0.0
+    smaller = min((first[2] - first[0]) * (first[3] - first[1]), (second[2] - second[0]) * (second[3] - second[1]))
+    return float(width * height / max(smaller, 1e-9))
+
+
+class FocusedPoseDetector:
+    """Live pose that infers only where the players are, as the on-device engine does.
+
+    Each player seen in the last 0.6 s gets one small square crop around their last box (wider if they were just
+    missed); a half is scanned whole only when one of its slots is empty or lost (at most every 0.5 s) or every 3 s,
+    to notice anyone the crops cannot see. Two 256 px crops cost a fraction of two 480–640 px half-courts.
+    """
+
+    def __init__(self, estimator: PoseEstimator, roi_size: int = 256, periodic_scan: float = 3.0, missing_scan: float = 0.5):
+        self.estimator = estimator
+        self.roi_size = roi_size
+        self.periodic_scan = periodic_scan
+        self.missing_scan = missing_scan
+        self.last_scan = dict.fromkeys(SIDES, -math.inf)
+        self.mode = "scan"
+
+    def regions(self, frame: np.ndarray, tracker: PlayerTracker, time_seconds: float) -> tuple[list[tuple[str, int, int, int, int]], int]:
+        height, width = frame.shape[:2]
+        tracked, missing = tracker.regions(time_seconds)
+        due = [
+            side
+            for side in SIDES
+            if not tracked
+            or time_seconds - self.last_scan[side] >= self.periodic_scan
+            or (side in missing and time_seconds - self.last_scan[side] >= self.missing_scan)
+        ]
+        if due:
+            self.mode = "scan"
+            for side in due:
+                self.last_scan[side] = time_seconds
+            return [(side, *self.estimator.geometry.player_inference_bounds(side, width, height)) for side in due], self.estimator.image_size
+        self.mode = "roi"
+        regions = []
+        for side, box, age in tracked:
+            context = 1.5 if age < 0.15 else 2.3  # just missed: look wider around where they were
+            size = min(max(64.0, max(box[2] - box[0], box[3] - box[1]) * context), float(width), float(height))
+            x1 = int(round(min(max(0.0, (box[0] + box[2]) / 2 - size / 2), width - size)))
+            y1 = int(round(min(max(0.0, (box[1] + box[3]) / 2 - size / 2), height - size)))
+            regions.append((side, x1, y1, x1 + int(size), y1 + int(size)))
+        return regions, self.roi_size
+
+    def detect(self, frame: np.ndarray, court: CourtFrame, tracker: PlayerTracker, time_seconds: float, doubles: bool = False) -> list[PoseDetection]:
+        regions, image_size = self.regions(frame, tracker, time_seconds)
+        detections: list[PoseDetection] = []
+        for side, people in self.estimator.people_in(frame, regions, image_size):
+            for detection in court_detections(frame, people, court, expected_side=side, doubles=doubles):
+                duplicate = next((index for index, kept in enumerate(detections) if _box_overlap(kept.box, detection.box) > 0.6), None)
+                if duplicate is None:
+                    detections.append(detection)
+                elif detection.score > detections[duplicate].score:
+                    detections[duplicate] = detection
         return detections
 
 

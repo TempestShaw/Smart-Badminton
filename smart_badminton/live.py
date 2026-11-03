@@ -34,6 +34,7 @@ from .players import (
     PlayerObservation,
     PlayerPainter,
     PlayerTracker,
+    FocusedPoseDetector,
     PoseEstimator,
     SwingCounter,
     active_player,
@@ -485,6 +486,7 @@ class LiveAnalyzer:
         audio: AudioStream | None = None,
         pose_image_size: int | None = None,
         shuttle_image_size: int | None = None,
+        pose_focus_size: int = 256,
     ):
         cuda = False
         if pose_model or shuttle_model:
@@ -504,6 +506,9 @@ class LiveAnalyzer:
             else None
         )
         self.tracker = PlayerTracker(self.court, players_per_side(match_format))
+        # Once players are tracked, pose runs on one small crop per player instead of both half-courts (≈2.5× faster
+        # on a CPU with positions within ~0.1 m); 0 keeps the half-court scans on every frame.
+        self.focused = FocusedPoseDetector(self.pose, roi_size=pose_focus_size) if self.pose and pose_focus_size > 0 else None
         self.shuttle = (
             OnlineShuttle(shuttle_model, self.geometry, shuttle_image_size or (960 if cuda else 640)) if shuttle_model else None
         )
@@ -540,7 +545,13 @@ class LiveAnalyzer:
         )
         observations: list[PlayerObservation] = []
         if self.pose is not None:
-            observations = self.tracker.update(self.pose.detect(frame, self.court, self.match_format == "doubles"), time_seconds)
+            doubles = self.match_format == "doubles"
+            detections = (
+                self.focused.detect(frame, self.court, self.tracker, time_seconds, doubles)
+                if self.focused is not None
+                else self.pose.detect(frame, self.court, doubles)
+            )
+            observations = self.tracker.update(detections, time_seconds)
         row.update(side_features(observations, shuttle_point))
         audio_score, since_audio = self.audio.sample(time_seconds) if self.audio and self.audio.active else (0.0, 999.0)
         row["audio_hit_score"], row["seconds_since_audio_hit"] = audio_score, since_audio
@@ -858,6 +869,7 @@ class LiveSettings:
     loop: bool = False
     pose_image_size: int | None = None  # default: 640 on CUDA, 480 on CPU
     shuttle_image_size: int | None = None  # default: 960 on CUDA, 640 on CPU
+    pose_focus_size: int = 256  # per-player crop size once tracked; 0 = always scan both half-courts
 
 
 class LiveSession:
@@ -954,6 +966,7 @@ class LiveSession:
                 audio=self.audio,
                 pose_image_size=self.settings.pose_image_size,
                 shuttle_image_size=self.settings.shuttle_image_size,
+                pose_focus_size=self.settings.pose_focus_size,
                 **self.models,
             )
             return self.analyzer

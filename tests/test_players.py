@@ -278,3 +278,53 @@ def test_overhead_views_admit_wide_far_players_and_keep_lost_slots_for_their_own
     # Two seconds later a differently dressed person appears: the lost slot must not adopt them.
     assert tracker.update([person(behind, 2.2, 3.1, "near", hue=8)], 2.0) == []
     assert [item.player_id for item in tracker.update([person(behind, 2.2, 3.1, "near", hue=8)], 5.0)] == ["near-1"]
+
+
+def test_focused_pose_crops_tracked_players_and_rescans_only_when_needed(tmp_path: Path) -> None:
+    from smart_badminton.players import FocusedPoseDetector
+
+    geometry = court_geometry(tmp_path)
+    court = CourtFrame(geometry, WIDTH, HEIGHT)
+    tracker = PlayerTracker(court, 1)
+    near, far = person(court, 3.0, 2.5, "near"), person(court, 3.0, 11.0, "far")
+
+    class Estimator:
+        image_size = 480
+
+        def __init__(self) -> None:
+            self.geometry = geometry
+            self.calls: list[tuple[list[str], int]] = []
+
+        def people_in(self, frame, regions, image_size):
+            self.calls.append(([side for side, *_ in regions], image_size))
+            found = []
+            for side, x1, y1, x2, y2 in regions:
+                candidate = near if side == "near" else far
+                centre = (candidate.box[0] + candidate.box[2]) / 2
+                inside = x1 <= centre <= x2 and y1 <= candidate.box[1] and candidate.box[3] <= y2 + 1
+                found.append((side, [(candidate.box, 0.9, candidate.keypoints, candidate.confidences)] if inside else []))
+            return found
+
+    estimator = Estimator()
+    focused = FocusedPoseDetector(estimator, roi_size=256)  # type: ignore[arg-type]
+    frame = np.zeros((HEIGHT, WIDTH, 3), np.uint8)
+    for step in range(12):
+        time_seconds = step * 0.1
+        tracker.update(focused.detect(frame, court, tracker, time_seconds), time_seconds)
+
+    assert estimator.calls[0] == (["near", "far"], 480)  # nobody tracked yet: scan both halves
+    assert estimator.calls[1:] == [(["near", "far"], 256)] * 11, estimator.calls  # then one crop per player
+    regions, size = focused.regions(frame, tracker, 1.2)
+    assert size == 256 and [side for side, *_ in regions] == ["near", "far"]
+    near_box = regions[0][1:]
+    assert near_box[0] <= near.box[0] and near.box[2] <= near_box[2] and near_box[1] <= near.box[1]
+
+    # The far player vanishes: once missing for 0.6 s that half is scanned again, at most every 0.5 s.
+    estimator.calls.clear()
+    for step in range(12, 30):
+        time_seconds = step * 0.1
+        far.box = far.box + 4000  # off-frame: never found
+        tracker.update(focused.detect(frame, court, tracker, time_seconds), time_seconds)
+    scans = [call for call in estimator.calls if call[1] == 480]
+    assert scans and all(sides == ["far"] for sides, _ in scans)
+    assert len(scans) <= 4
