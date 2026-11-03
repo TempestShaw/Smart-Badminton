@@ -11,6 +11,11 @@ licenses:
 - TrackNetV3 runtime, `TrackNet_best.pt`, and `InpaintNet_best.pt`: MIT. Copyright (c) 2024 qaz812345. Source:
   <https://github.com/qaz812345/TrackNetV3>.
 - `@ffmpeg/ffmpeg` and `@ffmpeg/util`: MIT. Source: <https://github.com/ffmpegwasm/ffmpeg.wasm>.
+- `yolo11n-pose.onnx` and `yolo11n-pose-int8.onnx`: AGPL-3.0-only, exported from `yolo11n-pose.pt` (the int8 model is
+  quantised with person crops from Ultralytics' COCO8-pose sample, used only for calibration and not distributed).
+  They are published with releases and with the web build's on-device mode.
+- `onnxruntime-web`: MIT. Copyright Microsoft Corporation. Source: <https://github.com/microsoft/onnxruntime>. It is
+  downloaded as an npm dependency and published only with the web build.
 - `@ffmpeg/core` WebAssembly runtime: GPL-2.0-or-later. Source and corresponding build scripts:
   <https://github.com/ffmpegwasm/ffmpeg.wasm>. It is downloaded as an npm dependency and published only with the
   Browser Quick web build.

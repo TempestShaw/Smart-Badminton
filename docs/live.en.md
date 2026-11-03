@@ -3,6 +3,8 @@
 Point a camera at the court, play, and watch the rally clock, shot count, player movement and court positions
 update on any phone, tablet or laptop on the same Wi-Fi. A computer does the analysis; viewers only need a browser.
 
+No computer at the court? [Phone only](#phone-only-no-computer) runs everything on the phone itself.
+
 Live analysis gives quick feedback while you play. For the editable highlight cut, record the session and run the full
 offline analysis in Studio afterwards. The offline pipeline sees every frame, uses the match sound and the whole
 video's context, and stays the accurate result.
@@ -55,6 +57,13 @@ measures positions in metres. Recalibrate whenever the camera moves.
 
 If Studio already has a calibration for the same camera position, **Use Studio's calibration** copies it.
 
+**Corners out of frame.** A camera beside the court or low behind it often cannot see all four corners. Choose
+**Corners out of frame** and mark any four or more court points you can see clearly instead: pick a point on the small
+court plan (net-post feet, the ends and centre of each short service line, the baseline corners and centres), then tap
+it in the picture. The points must not all lie on one line. Studio fits the court to them and works out where the
+corners would be, even outside the picture. It rejects points that disagree with each other, which usually means a
+point was given the wrong name.
+
 Mount the camera high behind one baseline with the whole court in view. Avoid wide-angle distortion where possible.
 
 ## What live analysis measures
@@ -67,6 +76,44 @@ Mount the camera high behind one baseline with the whole court in view. Avoid wi
 - **Player tracking.** Each player keeps a stable ID (`Near 1`, `Near 2`, `Far 1`, `Far 2`), even when doubles partners
   cross or one hides the other. Movement distance, current and top speed come from calibrated court metres.
 - **Swings.** Fast wrist movements per player.
+
+## Phone only (no computer)
+
+The on-device mode runs pose tracking, hit sounds and rally detection inside the phone's browser. Nothing is uploaded,
+and no computer or Wi-Fi is needed once the page has loaded. Open the hosted Studio page (the web build in
+`studio-web`, for example on Vercel), tap **Live** in the top bar, or add `?engine=device` to the address. Choose
+singles or doubles, allow the camera and microphone, then calibrate as above. The calibration is remembered on this
+phone.
+
+What it measures: each player's ID, court position, distance, speed and swings; hits, where a racket sound must match
+a swing on this court within 0.2 s (sounds from neighbouring courts or talking don't count); and rallies, which open
+on the serve exchange and close after 2.6 s without a hit. It does not track the shuttle, so shot counts depend on
+hearing the hits: in a noisy hall, or with the microphone blocked, only strong swings are counted.
+
+Speed comes from running the pose model only where the players are. Each tracked player gets a 192-pixel crop
+instead of the whole frame, and a half-court is only scanned again when a player is lost, or every 3 seconds. The
+phone uses its GPU through WebGPU when it has one (Safari on iOS 26 and later, recent Chrome) and is faster that
+way; otherwise it uses all but one CPU core with an 8-bit version of the model (3.4 MB instead of 12 MB, with about the
+same wrist accuracy). It times both at start-up and keeps the faster one. On a four-core laptop CPU without a GPU, in
+a browser, this gives about 17 analysed frames per second. The badges under the picture show the backend, frame rate
+and inference time on your phone.
+
+Keep the phone plugged in or on a power bank for long sessions: continuous camera and inference drain the battery.
+
+**Hosting the page.** The page needs HTTPS (for the camera) and these two headers (for multi-threaded inference):
+`Cross-Origin-Opener-Policy: same-origin` and `Cross-Origin-Embedder-Policy: require-corp`. `studio-web/vercel.json`
+sets them. The two ONNX models are built from the verified pose checkpoint:
+
+```bash
+smart-badminton install-models --directory models
+pip install "smart-badminton[ondevice]"
+smart-badminton export-ondevice-models --directory models
+```
+
+`npm run build` in `studio-web` copies them into the site. A build without local models (Vercel) downloads them from
+`ONDEVICE_MODELS_URL`, or by default from this repository's latest GitHub release, which publishes
+`yolo11n-pose.onnx` and `yolo11n-pose-int8.onnx`. The phone caches the model after the first visit. The models are
+AGPL-3.0, like the checkpoint they come from; see [THIRD_PARTY_NOTICES.md](../THIRD_PARTY_NOTICES.md).
 
 ## Speed and accuracy
 

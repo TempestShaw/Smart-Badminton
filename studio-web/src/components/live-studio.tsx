@@ -7,6 +7,7 @@ import { useEffect, useMemo, useRef, useState, type MouseEvent, type ReactNode }
 import { ArrowLeft, Camera, Crosshair, Link2, Play, Radio, RotateCcw, Smartphone, Square, Undo2, Video } from "lucide-react";
 
 import { Brand } from "@/components/brand";
+import { CourtLandmarkDiagram, useCourtPoints } from "@/components/court-point-picker";
 import { LanguageSwitcher } from "@/components/language-controls";
 import { LiveCourt } from "@/components/live-court";
 import { ThemeToggle } from "@/components/theme-controls";
@@ -20,7 +21,6 @@ import type { LivePlayer, LiveStatus, MatchFormat } from "@/types/live";
 import type { Point } from "@/types/studio";
 
 type SourceKind = "camera" | "browser" | "url";
-const CORNER_LABELS = ["近左", "近右", "远右", "远左"];
 
 function playerName(player: Pick<LivePlayer, "player_id">): string {
   const [side, slot] = player.player_id.split("-");
@@ -121,48 +121,64 @@ function LiveSetup({ live, status }: { live: LiveController; status: LiveStatus 
 }
 
 function CornerPicker({ live, status, onDone }: { live: LiveController; status: LiveStatus; onDone: () => void }) {
-  const [corners, setCorners] = useState<Point[]>([]);
+  const points = useCourtPoints();
   const [format, setFormat] = useState<MatchFormat>(status.match_format);
   const [stamp, setStamp] = useState(() => Date.now());
   const image = useRef<HTMLImageElement>(null);
 
   const place = (event: MouseEvent<HTMLDivElement>) => {
-    if (corners.length >= 4 || !image.current) return;
+    if (!image.current) return;
     const box = image.current.getBoundingClientRect();
     const x = (event.clientX - box.left) / box.width;
     const y = (event.clientY - box.top) / box.height;
     if (x < 0 || x > 1 || y < 0 || y > 1) return;
-    setCorners((current) => [...current, [Number(x.toFixed(5)), Number(y.toFixed(5))]]);
+    points.place([x, y]);
   };
-  const save = async () => { if (await live.calibrate(corners, format)) onDone(); };
+  const save = async () => {
+    const target = points.method === "corners" ? { corners: points.corners } : { landmarks: points.placed };
+    if (await live.calibrate(target, format)) onDone();
+  };
 
   return (
     <section className="live-card live-calibration" aria-labelledby="live-calibration-title">
       <div className="live-card-heading">
         <div>
           <p className="eyebrow">{t("场地校准")}</p>
-          <h2 id="live-calibration-title">{t("依次点击单打场地的四个角")}</h2>
+          <h2 id="live-calibration-title">{points.method === "corners" ? t("依次点击单打场地的四个角") : t("标出看得到的场地点")}</h2>
         </div>
-        <Button size="sm" variant="ghost" onClick={() => { setStamp(Date.now()); setCorners([]); }}><RotateCcw />{t("换一帧")}</Button>
+        <Button size="sm" variant="ghost" onClick={() => { setStamp(Date.now()); points.reset(); }}><RotateCcw />{t("换一帧")}</Button>
       </div>
-      <p className="live-hint">{t("顺序：近左 → 近右 → 远右 → 远左（单打边线与底线的交点）。其余区域会自动推算。")}</p>
-      <div className="live-corner-stage" onClick={place} role="presentation">
-        <img ref={image} src={apiUrl(`/api/live/snapshot.jpg?t=${stamp}`)} alt={t("当前摄像头画面")} draggable={false} />
-        <svg viewBox="0 0 1 1" preserveAspectRatio="none" aria-hidden="true">
-          {corners.length > 1 ? <polygon points={corners.map(([x, y]) => `${x},${y}`).join(" ")} /> : null}
-        </svg>
-        {corners.map(([x, y], index) => (
-          <span key={index} className="live-corner-dot" style={{ left: `${x * 100}%`, top: `${y * 100}%` }}>{index + 1}</span>
-        ))}
-        {corners.length < 4 ? <span className="live-corner-next">{t("点击：")}{t(CORNER_LABELS[corners.length])}</span> : null}
+      <Segmented
+        label={t("校准方式")}
+        value={points.method}
+        onChange={points.setMethod}
+        options={[{ value: "corners", label: t("四个角") }, { value: "landmarks", label: t("角不在画面里") }]}
+      />
+      <p className="live-hint">
+        {points.method === "corners"
+          ? t("顺序：近左 → 近右 → 远右 → 远左（单打边线与底线的交点）。其余区域会自动推算。")
+          : t("手机放在场边或较低时，有的角拍不到：改为标出任意 4 个以上看得清的点，例如网柱底部和前发球线的交点。")}
+      </p>
+      <div className={points.method === "landmarks" ? "live-landmark-layout" : undefined}>
+        <div className="live-corner-stage" onClick={place} role="presentation">
+          <img ref={image} src={apiUrl(`/api/live/snapshot.jpg?t=${stamp}`)} alt={t("当前摄像头画面")} draggable={false} />
+          <svg viewBox="0 0 1 1" preserveAspectRatio="none" aria-hidden="true">
+            {points.method === "corners" && points.corners.length > 1 ? <polygon points={points.corners.map(([x, y]) => `${x},${y}`).join(" ")} /> : null}
+          </svg>
+          {points.markers.map((marker) => (
+            <span key={marker.key} className="live-corner-dot" style={{ left: `${marker.point[0] * 100}%`, top: `${marker.point[1] * 100}%` }}>{marker.label}</span>
+          ))}
+          {points.prompt ? <span className="live-corner-next">{points.prompt}</span> : null}
+        </div>
+        {points.method === "landmarks" ? <CourtLandmarkDiagram points={points} /> : null}
       </div>
       <div className="live-calibration-actions">
         <Segmented label={t("比赛类型")} value={format} onChange={setFormat} options={[{ value: "singles", label: t("单打") }, { value: "doubles", label: t("双打") }]} />
-        <Button size="sm" variant="outline" disabled={!corners.length} onClick={() => setCorners((current) => current.slice(0, -1))}><Undo2 />{t("撤销")}</Button>
+        <Button size="sm" variant="outline" disabled={!points.count} onClick={points.undo}><Undo2 />{t("撤销")}</Button>
         {status.studio_calibration_available ? (
           <Button size="sm" variant="outline" disabled={live.busy} onClick={async () => { if (await live.calibrate(null, format)) onDone(); }}>{t("使用 Studio 的校准")}</Button>
         ) : null}
-        <Button size="sm" disabled={corners.length !== 4 || live.busy} onClick={() => void save()}><Crosshair />{t("保存校准")}</Button>
+        <Button size="sm" disabled={!points.ready || live.busy} onClick={() => void save()}><Crosshair />{t("保存校准")}</Button>
       </div>
     </section>
   );

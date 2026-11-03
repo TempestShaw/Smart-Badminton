@@ -208,11 +208,12 @@ export function useLiveSession() {
     }
   }, [stopCamera]);
 
-  const calibrate = useCallback(async (corners: Point[] | null, matchFormat: MatchFormat) => {
+  /** Four tapped corners, four or more named court landmarks, or ``null`` to copy Studio's calibration. */
+  const calibrate = useCallback(async (target: { corners: Point[] } | { landmarks: { id: string; image: Point }[] } | null, matchFormat: MatchFormat) => {
     setBusy(true);
     setError(null);
     try {
-      const body = corners ? { corners, match_format: matchFormat } : { copy_from_studio: true, match_format: matchFormat };
+      const body = target ? { ...target, match_format: matchFormat } : { copy_from_studio: true, match_format: matchFormat };
       setStatus(await apiRequest<LiveStatus>("/api/live/calibration", { method: "PUT", body: JSON.stringify(body) }));
       return true;
     } catch (failure) {

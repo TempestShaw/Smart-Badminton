@@ -12,6 +12,7 @@ from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
+from ..geometry import COURT_LANDMARKS_METERS, corners_from_landmarks
 from ..live import LiveSession, LiveSettings, write_corner_calibration
 from ..players import MATCH_FORMATS, match_format_from_config
 
@@ -158,20 +159,40 @@ class LiveManager:
             shutil.copy2(self.studio_config, self.config)
             self._set_match_format(match_format)
         else:
-            corners = payload.get("corners")
-            if not isinstance(corners, list) or len(corners) != 4:
-                raise ValueError("corners must list the four singles-court corners")
             session = self.require_session()
             if session.raw_size is None:
                 raise RuntimeError("Wait for the first camera frame before calibrating")
             width, height = session.raw_size
-            points = [[float(value) for value in corner] for corner in corners]
-            if not all(len(point) == 2 and 0.0 <= point[0] <= 1.0 and 0.0 <= point[1] <= 1.0 for point in points):
-                raise ValueError("Each corner must be a normalized [x, y] point inside the frame")
+            landmarks = payload.get("landmarks")
+            if landmarks is not None:
+                points = corners_from_landmarks(_landmark_pairs(landmarks), width, height)
+            else:
+                corners = payload.get("corners")
+                if not isinstance(corners, list) or len(corners) != 4:
+                    raise ValueError("corners must list the four singles-court corners")
+                points = [[float(value) for value in corner] for corner in corners]
+                if not all(len(point) == 2 and 0.0 <= point[0] <= 1.0 and 0.0 <= point[1] <= 1.0 for point in points):
+                    raise ValueError("Each corner must be a normalized [x, y] point inside the frame")
             write_corner_calibration(self.config, points, width, height, match_format)
         if self.session is not None:
             self.session.reload_calibration(self.config, match_format)
         return self.status()
+
+
+def _landmark_pairs(landmarks: Any) -> list[tuple[tuple[float, float], tuple[float, float]]]:
+    """``[{"id": "left-post", "image": [x, y]}, ...]`` (normalized image points) as (court metres, image) pairs."""
+    if not isinstance(landmarks, list):
+        raise ValueError("landmarks must be a list of {id, image} points")
+    pairs = []
+    for landmark in landmarks:
+        identifier = landmark.get("id") if isinstance(landmark, dict) else None
+        if identifier not in COURT_LANDMARKS_METERS:
+            raise ValueError(f"Unknown court point: {identifier}")
+        x, y = (float(value) for value in landmark.get("image", ()))
+        if not (0.0 <= x <= 1.0 and 0.0 <= y <= 1.0):
+            raise ValueError("Each court point must be a normalized [x, y] point inside the frame")
+        pairs.append((COURT_LANDMARKS_METERS[identifier], (x, y)))
+    return pairs
 
 
 def _safe_recording_name(name: str) -> str:

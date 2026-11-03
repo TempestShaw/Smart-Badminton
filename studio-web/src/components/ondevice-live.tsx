@@ -7,6 +7,7 @@ import { useCallback, useEffect, useRef, useState, type MouseEvent } from "react
 import { ArrowLeft, Crosshair, Cpu, Play, RotateCcw, Square, Undo2 } from "lucide-react";
 
 import { Brand } from "@/components/brand";
+import { CourtLandmarkDiagram, useCourtPoints } from "@/components/court-point-picker";
 import { LanguageSwitcher } from "@/components/language-controls";
 import { LiveCourt } from "@/components/live-court";
 import { PlayerCards, RallyPanel, Segmented } from "@/components/live-studio";
@@ -15,10 +16,10 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { drawOverlay, OnDeviceEngine } from "@/lib/ondevice/engine";
 import { validCorners, type Vec2 } from "@/lib/ondevice/court";
+import { LandmarkError } from "@/lib/court-landmarks";
 import type { LiveAnalysis, MatchFormat } from "@/types/live";
 
 const CORNERS_KEY = "smart-badminton:ondevice-corners:v1";
-const CORNER_LABELS = ["近左", "近右", "远右", "远左"];
 type Phase = "setup" | "calibrate" | "running";
 
 function describe(failure: unknown): string {
@@ -48,7 +49,7 @@ export function OnDeviceLive({ onBack }: { onBack?: () => void }) {
   const engine = useRef<OnDeviceEngine | null>(null);
   const [phase, setPhase] = useState<Phase>("setup");
   const [format, setFormat] = useState<MatchFormat>("singles");
-  const [corners, setCorners] = useState<Vec2[]>([]);
+  const points = useCourtPoints();
   const [analysis, setAnalysis] = useState<LiveAnalysis | null>(null);
   const [stats, setStats] = useState<OnDeviceEngine["stats"] | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -75,13 +76,9 @@ export function OnDeviceLive({ onBack }: { onBack?: () => void }) {
       element.srcObject = stream.current;
       await element.play();
       const saved = savedCorners();
-      if (saved) {
-        setCorners(saved);
-        await startEngine(saved);
-      } else {
-        setCorners([]);
-        setPhase("calibrate");
-      }
+      points.reset();
+      if (saved) await startEngine(saved);
+      else setPhase("calibrate");
     } catch (failure) {
       setError(describe(failure));
       stopAll();
@@ -91,11 +88,11 @@ export function OnDeviceLive({ onBack }: { onBack?: () => void }) {
     }
   };
 
-  const startEngine = async (points: Vec2[]) => {
+  const startEngine = async (courtCorners: Vec2[]) => {
     const element = video.current!;
     const next = new OnDeviceEngine({
       video: element,
-      corners: points,
+      corners: courtCorners,
       matchFormat: format,
       onUpdate: () => {
         if (overlay.current) drawOverlay(overlay.current, next, element);
@@ -117,16 +114,23 @@ export function OnDeviceLive({ onBack }: { onBack?: () => void }) {
   }, [phase]);
 
   const tap = (event: MouseEvent<HTMLDivElement>) => {
-    if (phase !== "calibrate" || corners.length >= 4 || !video.current) return;
+    if (phase !== "calibrate" || !video.current) return;
     const element = video.current;
     const bounds = element.getBoundingClientRect();
     const scale = Math.min(bounds.width / element.videoWidth, bounds.height / element.videoHeight);
     const x = (event.clientX - bounds.left - (bounds.width - element.videoWidth * scale) / 2) / (element.videoWidth * scale);
     const y = (event.clientY - bounds.top - (bounds.height - element.videoHeight * scale) / 2) / (element.videoHeight * scale);
-    if (x >= 0 && x <= 1 && y >= 0 && y <= 1) setCorners((current) => [...current, [x, y]]);
+    if (x >= 0 && x <= 1 && y >= 0 && y <= 1) points.place([x, y]);
   };
 
   const saveCorners = async () => {
+    let corners: Vec2[];
+    try {
+      corners = points.resolveCorners();
+    } catch (failure) {
+      setError(failure instanceof LandmarkError ? t(failure.message) : describe(failure));
+      return;
+    }
     if (!validCorners(corners)) {
       setError(t("四个角的顺序不对：近左 → 近右 → 远右 → 远左"));
       return;
@@ -197,19 +201,31 @@ export function OnDeviceLive({ onBack }: { onBack?: () => void }) {
         <div className="live-dashboard" hidden={phase === "setup"}>
           <div className="live-main">
             {phase === "calibrate" ? (
-              <div className="live-card-heading compact"><h2>{t("依次点击单打场地的四个角")}</h2><small>{corners.length < 4 ? `${t("点击：")}${t(CORNER_LABELS[corners.length])}` : t("可以开始了")}</small></div>
+              <>
+                <div className="live-card-heading compact">
+                  <h2>{points.method === "corners" ? t("依次点击单打场地的四个角") : t("标出看得到的场地点")}</h2>
+                </div>
+                <Segmented
+                  label={t("校准方式")}
+                  value={points.method}
+                  onChange={points.setMethod}
+                  options={[{ value: "corners", label: t("四个角") }, { value: "landmarks", label: t("角不在画面里") }]}
+                />
+              </>
             ) : null}
             <section className="live-stage ondevice-stage" onClick={tap}>
               <video ref={video} playsInline muted />
               <canvas ref={overlay} aria-hidden="true" />
-              {phase === "calibrate" ? corners.map((point, index) => (
-                <span key={index} className="live-corner-dot" style={dotStyle(point)}>{index + 1}</span>
+              {phase === "calibrate" ? points.markers.map((marker) => (
+                <span key={marker.key} className="live-corner-dot" style={dotStyle(marker.point)}>{marker.label}</span>
               )) : null}
+              {phase === "calibrate" ? <span className="live-corner-next">{points.prompt ?? t("可以开始了")}</span> : null}
             </section>
+            {phase === "calibrate" && points.method === "landmarks" ? <CourtLandmarkDiagram points={points} /> : null}
             {phase === "calibrate" ? (
               <div className="live-calibration-actions">
-                <Button size="sm" variant="outline" disabled={!corners.length} onClick={() => setCorners((current) => current.slice(0, -1))}><Undo2 />{t("撤销")}</Button>
-                <Button size="sm" disabled={corners.length !== 4 || busy} onClick={() => void saveCorners()}><Crosshair />{t("保存校准")}</Button>
+                <Button size="sm" variant="outline" disabled={!points.count} onClick={points.undo}><Undo2 />{t("撤销")}</Button>
+                <Button size="sm" disabled={!points.ready || busy} onClick={() => void saveCorners()}><Crosshair />{t("保存校准")}</Button>
               </div>
             ) : null}
             {phase === "running" && stats ? (

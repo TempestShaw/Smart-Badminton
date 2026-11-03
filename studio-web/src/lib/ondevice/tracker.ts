@@ -51,12 +51,16 @@ export function visible(keypoints: Float32Array, joint: number): boolean {
   return keypoints[joint * 3 + 2] >= KEYPOINT_CONFIDENCE;
 }
 
+/** Ankles sit ~7 cm above the floor (~3.5% of a standing box); near the far baseline that is ~0.5 m of depth. */
+const ANKLE_ABOVE_SOLE = 0.035;
+
 function footPixel(box: [number, number, number, number], keypoints: Float32Array): Vec2 {
   const ankles = [LEFT_ANKLE, RIGHT_ANKLE].filter((joint) => visible(keypoints, joint));
   if (!ankles.length) return [(box[0] + box[2]) / 2, box[3]];
+  const y = ankles.reduce((sum, joint) => sum + keypoints[joint * 3 + 1], 0) / ankles.length;
   return [
     ankles.reduce((sum, joint) => sum + keypoints[joint * 3], 0) / ankles.length,
-    ankles.reduce((sum, joint) => sum + keypoints[joint * 3 + 1], 0) / ankles.length,
+    Math.min(box[3], y + ANKLE_ABOVE_SOLE * (box[3] - box[1])),
   ];
 }
 

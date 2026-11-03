@@ -225,13 +225,25 @@ class CourtFrame:
         return "near" if court_y < NET_Y_METERS else "far"
 
 
+ANKLE_ABOVE_SOLE = 0.035  # ankle keypoints sit ~7 cm above the floor: ~3.5% of a standing person's box height
+
+
 def foot_point(box: np.ndarray, keypoints: np.ndarray, confidences: np.ndarray | None) -> np.ndarray:
+    """Where the player stands, in pixels: the ankles moved down to the sole, else the bottom of the box.
+
+    Near the far baseline one pixel can be ~0.1 m of depth, so the ankle-to-sole gap alone would place far players
+    up to half a metre too deep.
+    """
     ankles = [
         keypoints[index]
         for index in (LEFT_ANKLE, RIGHT_ANKLE)
         if confidences is None or float(confidences[index]) >= KEYPOINT_CONFIDENCE
     ]
-    return np.mean(ankles, axis=0) if ankles else np.asarray([(box[0] + box[2]) / 2.0, box[3]])
+    if not ankles:
+        return np.asarray([(box[0] + box[2]) / 2.0, box[3]])
+    point = np.mean(ankles, axis=0).astype(np.float64)
+    point[1] = min(float(box[3]), point[1] + ANKLE_ABOVE_SOLE * float(box[3] - box[1]))
+    return point
 
 
 def court_detections(

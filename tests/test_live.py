@@ -119,6 +119,21 @@ def test_live_api_streams_a_file_source_and_calibrates_from_four_corners(tmp_pat
 
     calibrated = client.put("/api/live/calibration", json={"corners": CORNERS, "match_format": "doubles"})
     assert calibrated.status_code == 200 and calibrated.json()["calibrated"] is True
+    # The same court from points other than the corners (as when a corner is out of frame).
+    homography = cv2.getPerspectiveTransform(
+        np.float32([[0.46, 0], [5.64, 0], [5.64, 13.4], [0.46, 13.4]]), np.float32(CORNERS) * np.float32([320, 180])
+    )
+    visible = {"left-post": (0.0, 6.7), "right-post": (6.1, 6.7), "near-centre-service": (3.05, 4.72), "far-left-service": (0.46, 8.68)}
+    landmarks = [
+        {"id": name, "image": (cv2.perspectiveTransform(np.float32([[point]]), homography)[0][0] / [320, 180]).tolist()}
+        for name, point in visible.items()
+    ]
+    from_points = client.put("/api/live/calibration", json={"landmarks": landmarks, "match_format": "doubles"})
+    assert from_points.status_code == 200 and from_points.json()["calibrated"] is True
+    saved = json.loads(manager.config.read_text(encoding="utf-8"))
+    assert np.allclose(saved["calibration"]["court_corners_normalized"], CORNERS, atol=2e-3)
+    unknown = client.put("/api/live/calibration", json={"landmarks": [{"id": "net-cord", "image": [0.5, 0.5]}] * 4})
+    assert unknown.status_code == 400
     wait_for(lambda: "analysis" in manager.status())
     analysis = manager.status()["analysis"]
     assert analysis["match_format"] == "doubles" and analysis["metric"] is True

@@ -105,6 +105,11 @@ shows the rally clock, shots per rally, and for each tracked player (two per sid
 swings, hits and court position. Tick **Record** to keep the session for a full, editable cut in Studio afterwards.
 See [live analysis](docs/live.en.md).
 
+No computer at the court: open the web Studio on the phone and tap **Live**. Player tracking, hit sounds and rallies
+then run in the phone's browser (WebGPU, or an 8-bit model on the CPU), and nothing is uploaded. If a camera beside the
+court cannot see all four corners, calibrate from any four visible court points instead. See
+[phone only](docs/live.en.md#phone-only-no-computer).
+
 ## Use directly in your terminal
 
 A reviewed timeline is a small CSV file. Save this illustrative example as `rallies.csv` and use a recording long enough to contain these ranges:

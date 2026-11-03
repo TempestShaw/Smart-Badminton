@@ -20,6 +20,58 @@ SINGLES_CORNERS_METERS = np.asarray(
 )
 
 
+# Painted points a camera beside the court or low behind it usually still sees when some corners are out of frame:
+# singles sideline and centre line crossings with the baselines and short service lines, and the net posts' feet
+# (on the doubles sidelines). Ids match the web pickers.
+COURT_LANDMARKS_METERS: dict[str, Point] = {
+    "near-left-corner": (0.46, 0.0),
+    "near-centre-baseline": (3.05, 0.0),
+    "near-right-corner": (5.64, 0.0),
+    "near-left-service": (0.46, 4.72),
+    "near-centre-service": (3.05, 4.72),
+    "near-right-service": (5.64, 4.72),
+    "left-post": (0.0, 6.7),
+    "right-post": (6.1, 6.7),
+    "far-left-service": (0.46, 8.68),
+    "far-centre-service": (3.05, 8.68),
+    "far-right-service": (5.64, 8.68),
+    "far-left-corner": (0.46, 13.4),
+    "far-centre-baseline": (3.05, 13.4),
+    "far-right-corner": (5.64, 13.4),
+}
+
+
+def corners_from_landmarks(landmarks: Iterable[tuple[Point, Point]], width: int, height: int) -> list[list[float]]:
+    """The four singles corners implied by four or more known court points (``(court metres, normalized image)``).
+
+    A least-squares homography maps the court plane into the image; projecting the singles corners through it gives
+    "virtual" corners, which may lie outside the frame, so every corner-based region and the tracker work unchanged.
+    """
+    pairs = [((float(cx), float(cy)), (float(ix) * width, float(iy) * height)) for (cx, cy), (ix, iy) in landmarks]
+    if len(pairs) < 4:
+        raise ValueError("Mark at least four court points")
+    court = np.asarray([court for court, _ in pairs], dtype=np.float64)
+    image = np.asarray([image for _, image in pairs], dtype=np.float64)
+    # Four points need three that are not on one line; with more, the spread across both axes must be real.
+    centred = court - court.mean(axis=0)
+    spread = np.linalg.svd(centred, compute_uv=False)
+    if len({tuple(point) for point in court.tolist()}) < len(court) or spread[-1] < 0.5:
+        raise ValueError("The court points must not all lie on one line; add a point from another line")
+    homography, _ = cv2.findHomography(court, image, 0)
+    if homography is None:
+        raise ValueError("These court points do not form a consistent view of the court")
+    projected = cv2.perspectiveTransform(court[None], homography)[0]
+    error = float(np.max(np.linalg.norm(projected - image, axis=1)))
+    if error > 0.03 * float(np.hypot(width, height)):
+        raise ValueError("Some court points are inconsistent with the others; check their names and positions")
+    corners = np.asarray(SINGLES_CORNERS_METERS, dtype=np.float64)
+    depth = (homography @ np.c_[corners, np.ones(4)].T)[2]
+    if not (np.all(depth > 0) or np.all(depth < 0)):
+        raise ValueError("Part of the court is behind the camera; move the camera back from the court")
+    virtual = cv2.perspectiveTransform(corners[None], homography)[0]
+    return [[round(float(x) / width, 5), round(float(y) / height, 5)] for x, y in virtual]
+
+
 def _points(value: Iterable[Iterable[float]]) -> list[Point]:
     return [(float(x), float(y)) for x, y in value]
 

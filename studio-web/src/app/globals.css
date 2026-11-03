@@ -787,6 +787,20 @@ html[lang="en"] .score-heading > .eyebrow { white-space: nowrap; }
 .live-corner-stage polygon { fill: color-mix(in oklab, var(--player-near-1) 22%, transparent); stroke: #ffd84d; stroke-width: .004; vector-effect: non-scaling-stroke; }
 .live-corner-dot { position: absolute; display: grid; width: 24px; height: 24px; place-items: center; margin: -12px 0 0 -12px; color: #101411; border: 2px solid #fff; border-radius: 50%; background: #ffd84d; box-shadow: 0 2px 8px rgb(0 0 0 / .45); font-size: 12px; font-weight: 700; animation: pop-in var(--dur) var(--ease-out); }
 .live-corner-next { position: absolute; top: 10px; left: 10px; padding: 6px 10px; color: #fff; border-radius: 999px; background: rgb(0 0 0 / .62); font-size: 12px; font-weight: 600; }
+.live-landmark-layout { display: grid; grid-template-columns: minmax(0, 1fr) 150px; gap: 14px; align-items: start; }
+.court-landmarks { display: grid; gap: 8px; }
+.court-landmarks svg { width: 100%; max-width: 150px; height: auto; margin: 0 auto; overflow: visible; }
+.court-landmarks p { margin: 0; color: var(--studio-muted); font-size: 12px; line-height: 1.45; }
+.court-landmarks-floor { fill: color-mix(in oklab, var(--player-near-1) 16%, transparent); }
+.court-landmarks line { stroke: var(--line-strong); stroke-width: .07; }
+.court-landmarks .court-landmarks-net { stroke: var(--text); stroke-width: .12; stroke-dasharray: .25 .15; }
+.court-landmark { cursor: pointer; outline: none; }
+.court-landmark circle { fill: var(--panel); stroke: var(--studio-muted); stroke-width: .08; transition: fill var(--dur) var(--ease-out); }
+.court-landmark text { fill: var(--text); font-size: .5px; font-weight: 700; text-anchor: middle; dominant-baseline: central; pointer-events: none; }
+.court-landmark.done circle { fill: #ffd84d; stroke: #8a6d00; }
+.court-landmark.done text { fill: #101411; }
+.court-landmark.active circle, .court-landmark:focus-visible circle { stroke: var(--brand); stroke-width: .2; }
+@media (max-width: 640px) { .live-landmark-layout { grid-template-columns: 1fr; } .court-landmarks svg { max-width: 120px; } }
 .live-calibration-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
 .live-calibration-actions .live-segmented { flex: 0 1 220px; }
 .live-calibration-actions > [data-slot="button"]:last-child { margin-left: auto; }
@@ -882,5 +896,6 @@ html[lang="en"] .score-heading > .eyebrow { white-space: nowrap; }
 .ondevice-stage video, .ondevice-stage canvas { position: absolute; inset: 0; width: 100%; height: 100%; }
 .ondevice-stage video { object-fit: contain; background: #050606; }
 .ondevice-stage canvas { pointer-events: none; }
-.ondevice-stage .live-corner-dot { z-index: 2; }
+.ondevice-stage .live-corner-dot, .ondevice-stage .live-corner-next { z-index: 2; }
+.live-corner-next { max-width: calc(100% - 20px); pointer-events: none; }
 .live-dashboard[hidden] { display: none; }
