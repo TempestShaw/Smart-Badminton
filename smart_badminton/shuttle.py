@@ -51,41 +51,45 @@ def detect_shuttle(
     report_stride = max(1, expected_samples // 100)
     frame_index = start_frame
     while frame_index < end_frame:
+        if (frame_index - start_frame) % stride:
+            if not capture.grab():  # skipped frames are advanced without decoding
+                break
+            frame_index += 1
+            continue
         ok, frame = capture.read()
         if not ok:
             break
-        if (frame_index - start_frame) % stride == 0:
-            sampled += 1
-            result = model.predict(frame, imgsz=image_size, conf=confidence, device=device, verbose=False)[0]
-            if result.boxes is not None:
-                boxes = result.boxes.xyxy.detach().cpu().numpy()
-                scores = result.boxes.conf.detach().cpu().numpy()
-                for box, score in zip(boxes, scores):
-                    x1, y1, x2, y2 = [float(value) for value in box]
-                    center_x, center_y = (x1 + x2) / 2.0, (y1 + y2) / 2.0
-                    nx, ny = center_x / width, center_y / height
-                    if not geometry.contains_shuttle_volume(nx, ny):
-                        continue
-                    if geometry.excluded_normalized(nx, ny):
-                        continue
-                    rows.append(
-                        {
-                            "time_seconds": f"{frame_index / source_fps:.6f}",
-                            "frame": frame_index,
-                            "source_width": width,
-                            "source_height": height,
-                            "confidence": f"{float(score):.6f}",
-                            "center_x": f"{center_x:.3f}",
-                            "center_y": f"{center_y:.3f}",
-                            "width": f"{x2 - x1:.3f}",
-                            "height": f"{y2 - y1:.3f}",
-                            "source": "yolo",
-                            "detection_status": "detected",
-                            "evidence_weight": "0.650000",
-                        }
-                    )
-            if progress_callback is not None and (sampled % report_stride == 0 or sampled == expected_samples):
-                progress_callback(min(1.0, sampled / expected_samples))
+        sampled += 1
+        result = model.predict(frame, imgsz=image_size, conf=confidence, device=device, verbose=False)[0]
+        if result.boxes is not None:
+            boxes = result.boxes.xyxy.detach().cpu().numpy()
+            scores = result.boxes.conf.detach().cpu().numpy()
+            for box, score in zip(boxes, scores):
+                x1, y1, x2, y2 = [float(value) for value in box]
+                center_x, center_y = (x1 + x2) / 2.0, (y1 + y2) / 2.0
+                nx, ny = center_x / width, center_y / height
+                if not geometry.contains_shuttle_volume(nx, ny):
+                    continue
+                if geometry.excluded_normalized(nx, ny):
+                    continue
+                rows.append(
+                    {
+                        "time_seconds": f"{frame_index / source_fps:.6f}",
+                        "frame": frame_index,
+                        "source_width": width,
+                        "source_height": height,
+                        "confidence": f"{float(score):.6f}",
+                        "center_x": f"{center_x:.3f}",
+                        "center_y": f"{center_y:.3f}",
+                        "width": f"{x2 - x1:.3f}",
+                        "height": f"{y2 - y1:.3f}",
+                        "source": "yolo",
+                        "detection_status": "detected",
+                        "evidence_weight": "0.650000",
+                    }
+                )
+        if progress_callback is not None and (sampled % report_stride == 0 or sampled == expected_samples):
+            progress_callback(min(1.0, sampled / expected_samples))
         frame_index += 1
     capture.release()
     if progress_callback is not None:

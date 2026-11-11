@@ -14,6 +14,7 @@ from ..analytics import ANALYTICS_SCHEMA_VERSION, analyze_rally_actions
 from ..contacts import analyze_contacts
 from ..court_events import analyze_terminal_events
 from ..io import load_rallies, read_rows
+from ..players import match_format_from_config, read_player_tracks, summarize_player_tracks
 from ..rally_evidence import build_rally_evidence
 from ..score_labeling import load_machine_labels, score_labeling_config
 from ..score_learning import default_score_model_path, fit_score_evidence_model
@@ -43,9 +44,10 @@ def _build_analytics_payload(state: StudioState) -> dict[str, Any]:
     contacts = root / "rally-contacts.csv"
     events = root / "rally-events.csv"
     config = state.config if state.config_ready() else None
+    player_tracks = state.layout().analysis.player_tracks
     if trajectory.exists():
-        if _is_stale(contacts, [features, state.rallies, trajectory]):
-            analyze_contacts(features, state.rallies, contacts, root / "contact-summary.json")
+        if _is_stale(contacts, [features, state.rallies, trajectory, player_tracks]):
+            analyze_contacts(features, state.rallies, contacts, root / "contact-summary.json", player_tracks)
         probabilities = root / "rally-probabilities.csv"
         if config is not None and _is_stale(events, [features, state.rallies, trajectory, contacts, config, probabilities]):
             analyze_terminal_events(
@@ -87,8 +89,39 @@ def analytics_payload(state: StudioState) -> dict[str, Any]:
         *(root / name for name in ("audio-events.csv", "shuttle-track.csv", "rally-contacts.csv")),
         root / "rally-events.csv",
         root / "action-summary.json",
+        root / "player-tracks.csv",
     )
     return cached_payload(state, "analytics", paths, lambda: _build_analytics_payload(state))
+
+
+def _build_players_payload(state: StudioState) -> dict[str, Any]:
+    artifacts = state.layout().analysis
+    rows = read_player_tracks(artifacts.player_tracks)
+    match_format = match_format_from_config(state.config if state.config_ready() else None)
+    if not rows:
+        return {
+            "available": False,
+            "match_format": match_format,
+            "reason": "Run automatic analysis with the pose model to track players.",
+        }
+    summary = summarize_player_tracks(rows)
+    contacts = artifacts.root / "rally-contacts.csv"
+    hits: dict[str, int] = {}
+    if contacts.exists():
+        for row in read_rows(contacts):
+            player_id = str(row.get("player_id") or "")
+            if player_id:
+                hits[player_id] = hits.get(player_id, 0) + 1
+    for player in summary["players"]:
+        player["hits"] = hits.get(player["player_id"], 0)
+    return {"available": True, "match_format": match_format, **summary}
+
+
+def players_payload(state: StudioState) -> dict[str, Any]:
+    root = state.layout().analysis.root
+    paths = (state.config, root / "player-tracks.csv", root / "rally-contacts.csv")
+    payload = cached_payload(state, "players", paths, lambda: _build_players_payload(state))
+    return {"match_format": match_format_from_config(state.config if state.config_ready() else None), **payload}
 
 
 def boolean_spans(times: list[float], values: Any) -> list[list[float]]:

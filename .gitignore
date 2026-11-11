@@ -34,6 +34,7 @@
 !/models/README.md
 !/models/MODEL_CARD.md
 !/models/*.license.json
+/models/*.onnx.license.json
 !/models/*.adapter.json
 /ThirdParty/
 *.pt
@@ -72,6 +73,8 @@ venv/
 /studio-web/.next/
 /studio-web/out/
 /studio-web/public/ffmpeg/
+/studio-web/public/ort/
+/studio-web/public/models/
 /studio-web/*.tsbuildinfo
 
 # Editors and OS

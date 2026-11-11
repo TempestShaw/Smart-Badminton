@@ -57,6 +57,9 @@ def main() -> None:
     model_install = commands.add_parser("install-models")
     model_install.add_argument("--directory", type=path, default=Path.cwd() / "models")
     model_install.add_argument("--force", action="store_true")
+    ondevice_export = commands.add_parser("export-ondevice-models")
+    ondevice_export.add_argument("--directory", type=path, default=Path.cwd() / "models")
+    ondevice_export.add_argument("--calibration", type=path, help="COCO-pose style folder (images/, labels/); default COCO8-pose")
     shuttle_audit = commands.add_parser("audit-shuttle-dataset")
     shuttle_audit.add_argument("--manifest", type=path, required=True)
     shuttle_train = commands.add_parser("train-shuttle")
@@ -90,6 +93,8 @@ def main() -> None:
     feature.add_argument("--fps", type=float)
     feature.add_argument("--start", type=float, default=0.0)
     feature.add_argument("--end", type=float)
+    feature.add_argument("--player-tracks", type=path, help="also write tracked players (player-tracks.csv)")
+    feature.add_argument("--match-format", choices=["singles", "doubles"], help="overrides the config's match_format")
     shuttle = commands.add_parser("detect-shuttle")
     shuttle.add_argument("--video", type=path, required=True)
     shuttle.add_argument("--config", type=path, required=True)
@@ -293,6 +298,34 @@ def main() -> None:
     studio.add_argument("--shuttle-mode", choices=["yolo", "tracknet", "hybrid"], default="hybrid")
     studio.add_argument("--tracknet-packages", type=path)
     studio.add_argument("--packages", type=path)
+    studio.add_argument("--https", action="store_true", help="serve HTTPS so phones on the LAN can share their camera")
+    evaluate_hits = commands.add_parser("evaluate-contacts", help="precision/recall of detected hits against hand-marked hits")
+    evaluate_hits.add_argument("--predicted", type=path, required=True, help="rally-contacts.csv")
+    evaluate_hits.add_argument("--truth", type=path, required=True, help="CSV with time_seconds and player (near/far)")
+    evaluate_hits.add_argument("--tolerance", type=float, default=0.15)
+    live = commands.add_parser("live", help="real-time analysis of a camera, stream or phone; open the page on any device")
+    live.add_argument("--library", type=path, default=Path("."), help="where recordings and the live calibration are kept")
+    live.add_argument("--source", help="camera number (0), stream URL, video file, or 'browser' for a phone camera")
+    live.add_argument("--match-format", choices=["singles", "doubles"], default="singles")
+    live.add_argument("--no-shuttle", action="store_true", help="skip shuttle detection (faster on CPU)")
+    live.add_argument("--record", action="store_true")
+    live.add_argument("--host", default="0.0.0.0")
+    live.add_argument("--port", type=int, default=8765)
+    live.add_argument("--https", action="store_true", help="needed for a phone's browser camera")
+    live.add_argument("--open", action="store_true")
+    live.add_argument("--pose-model", type=path)
+    live.add_argument("--shuttle-model", type=path)
+    live.add_argument("--model", type=path, help="rally-state model")
+    live.add_argument("--packages", type=path)
+    live.add_argument("--ffmpeg", type=path)
+    live.add_argument("--pose-size", type=int, help="pose inference size (default 640 on CUDA, 480 on CPU)")
+    live.add_argument("--shuttle-size", type=int, help="shuttle inference size (default 960 on CUDA, 640 on CPU)")
+    live.add_argument(
+        "--pose-focus-size",
+        type=int,
+        default=256,
+        help="pose crop size per tracked player (default 256); 0 scans both half-courts on every frame",
+    )
 
     args = parser.parse_args()
 
@@ -323,6 +356,10 @@ def main() -> None:
         print(json.dumps(initialize_project(args.directory), ensure_ascii=False, indent=2))
     elif args.command == "install-models":
         print(json.dumps(install_models(args.directory, args.force), ensure_ascii=False, indent=2))
+    elif args.command == "export-ondevice-models":
+        from .ondevice_models import export_ondevice_models
+
+        print(json.dumps(export_ondevice_models(args.directory, args.calibration), ensure_ascii=False, indent=2))
     elif args.command == "audit-shuttle-dataset":
         print(json.dumps(audit_shuttle_dataset(args.manifest), ensure_ascii=False, indent=2))
     elif args.command == "train-shuttle":
@@ -366,6 +403,8 @@ def main() -> None:
             args.fps,
             args.start,
             args.end,
+            player_tracks_output=args.player_tracks,
+            match_format=args.match_format,
         )
     elif args.command == "detect-shuttle":
         print(
@@ -648,4 +687,31 @@ def main() -> None:
             args.inpaint_model,
             args.shuttle_mode,
             args.tracknet_packages,
+            args.https,
+        )
+    elif args.command == "evaluate-contacts":
+        from .contacts import evaluate_contacts
+
+        print(json.dumps(evaluate_contacts(args.predicted, args.truth, args.tolerance), indent=2))
+    elif args.command == "live":
+        from .studio.live_routes import run_live
+
+        run_live(
+            args.library,
+            args.host,
+            args.port,
+            args.source,
+            args.match_format,
+            not args.no_shuttle,
+            args.record,
+            args.https,
+            args.pose_model,
+            args.shuttle_model,
+            args.model,
+            args.packages,
+            args.ffmpeg,
+            args.open,
+            args.pose_size,
+            args.shuttle_size,
+            args.pose_focus_size,
         )

@@ -9,14 +9,13 @@ from pathlib import Path
 from typing import Any
 
 from ..audio import analyze_audio
-from ..features import extract_features
 from ..pose_overlay import render_pose_overlay
 from ..render import render_rallies
 from ..score_labeling import label_score_evidence, prepare_score_evidence, score_labeling_config
 from ..score_learning import default_score_model_path, fit_score_evidence_model
 from .insights import calculate_score_payload, score_label_paths
 from .media import full_pose_overlay_path, pose_status_payload, record_encoder, runtime_payload
-from .pipeline import analyze_video, has_pose_association, preserve_state_features
+from .pipeline import analyze_video, extract_vision_features, needs_player_features, preserve_state_features
 from .project import video_id, video_metadata
 from .shuttle import features_for_trajectory, run_shuttle_detection, run_shuttle_trajectory, shuttle_status_payload
 from .state import StudioState, begin_analysis_status, set_analysis_status
@@ -224,24 +223,16 @@ def visual_job(state: StudioState, video: Path, run_pose: bool, run_shuttle: boo
                     "shuttle-detect", f"正在运行 {detector} 羽球检测", start + value * (0.74 - start)
                 ),
             )
-        needs_pose_association = bool(state.pose_model and not has_pose_association(artifacts.vision_features))
+        needs_pose_association = bool(state.pose_model and needs_player_features(state, video))
         if needs_pose_association:
             running("shuttle-track-initial", "正在先排除长期静止杂物并建立初始羽球轨迹", 0.76)
             run_shuttle_trajectory(state, video, None)
             if not artifacts.audio_events.exists():
                 analyze_audio(video, artifacts.audio_events, ffmpeg=state.ffmpeg)
-            extract_features(
+            extract_vision_features(
+                state,
                 video,
-                state.config,
-                artifacts.vision_features,
-                artifacts.audio_events,
-                artifacts.shuttle_track,
-                state.pose_model,
-                state.packages,
-                None,
-                0.0,
-                None,
-                lambda value: running("player-association", "正在提取手腕、捡球与持球证据", 0.79 + value * 0.16),
+                lambda value: running("player-association", "正在跟踪球员并提取手腕、捡球与持球证据", 0.79 + value * 0.16),
             )
             preserve_state_features(artifacts.features, artifacts.vision_features)
         running(

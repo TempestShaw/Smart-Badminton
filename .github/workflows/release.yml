@@ -11,7 +11,7 @@ permissions:
 jobs:
   github-release:
     runs-on: ubuntu-latest
-    timeout-minutes: 35
+    timeout-minutes: 45
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -48,6 +48,13 @@ jobs:
       - run: python scripts/build_wheel.py --output-directory dist
       - name: Download verified vision models
         run: smart-badminton install-models --directory models
+      - name: Export on-device models (phone and browser live analysis)
+        run: |
+          python -m pip install torch --index-url https://download.pytorch.org/whl/cpu
+          python -m pip install -e ".[ondevice]"
+          smart-badminton export-ondevice-models --directory models
+          test -s models/yolo11n-pose.onnx
+          test -s models/yolo11n-pose-int8.onnx
       - name: Build complete model bundle
         run: python scripts/build_model_bundle.py --output-directory dist
       - name: Publish GitHub Release
@@ -57,5 +64,7 @@ jobs:
           gh release create "$GITHUB_REF_NAME"
           dist/*.whl
           dist/smart-badminton-models-*.zip
+          models/yolo11n-pose.onnx
+          models/yolo11n-pose-int8.onnx
           --generate-notes
           --verify-tag

@@ -9,7 +9,7 @@ Run `smart-badminton --help` or `python -m smart_badminton --help` after install
 | `doctor` | Check Python, optional packages, FFmpeg encoder fallback and checkpoint license sidecars. |
 | `preview-geometry` | Draw configured court and exclusion polygons on a video frame. |
 | `analyze-audio` | Extract transient impact candidates from a WAV file or video. |
-| `extract-features` | Build the sampled multimodal feature timeline. |
+| `extract-features` | Build the sampled multimodal feature timeline; `--player-tracks` also writes tracked players and `--match-format doubles` follows two per side. |
 | `detect-shuttle` | Optionally run a supplied Ultralytics-compatible shuttle checkpoint. |
 | `detect-tracknet` | Run a TrackNetV3 checkpoint with airspace masking and optional InpaintNet repair. |
 | `fuse-shuttle` | Fuse YOLO and TrackNet candidates into the shared trajectory format. |
@@ -31,6 +31,7 @@ Run `smart-badminton --help` or `python -m smart_badminton --help` after install
 | `analyze-score` | Maintain independent rally-score/server state from safe events and manual corrections. |
 | `evaluate-score` | Report scoring coverage and covered accuracy without mixing in editing metrics. |
 | `render` | Concatenate rally ranges into an MP4. |
-| `studio` | Open one video or a recursive Match library, run automatic analysis and edit the timeline. |
+| `studio` | Open one video or a recursive Match library, run automatic analysis and edit the timeline; `--https` lets phones on the LAN share their camera with the live page. |
+| `live` | Real-time analysis of a camera, stream, file or phone camera, viewable on any device on the network. See [live analysis](../docs/live.en.md). |
 
 The repository-level [README](../README.md) contains installation and end-to-end examples.

@@ -114,3 +114,97 @@ def analyze_audio(
         "threshold": threshold,
         "output": str(output_csv),
     }
+
+
+class StreamingHitDetector:
+    """The onset detector of :func:`analyze_audio`, fed incrementally from a live microphone or stream.
+
+    Scores use the same 10 ms features against a ±1 s moving baseline, so each hop is final one second after it is
+    heard. The adaptive threshold is the 98.8th percentile of the last minute instead of the whole file.
+    """
+
+    hop_seconds = 0.01
+    radius = 100
+    minimum_gap = 16
+
+    def __init__(self, sample_rate: int = 16000, history_seconds: float = 60.0):
+        self.sample_rate = sample_rate
+        self.hop = max(1, round(sample_rate * self.hop_seconds))
+        self.pending = np.zeros(0, dtype=np.float32)
+        self.log_high: list[float] = []
+        self.log_rms: list[float] = []
+        self.crest: list[float] = []
+        self.offset = 0  # absolute hop index of element 0 in the feature lists
+        self.finalized = 0  # absolute hop index of the next score to compute
+        self.scores: list[float] = []  # scores from absolute index ``offset_scores``
+        self.offset_scores = 0
+        self.history: list[float] = []
+        self.history_limit = round(history_seconds / self.hop_seconds)
+        self.last_event: tuple[int, float] | None = None
+        self.emitted: list[tuple[float, float]] = []
+
+    def push(self, samples: np.ndarray) -> list[tuple[float, float]]:
+        """Add mono float samples in [-1, 1]; returns hits ``(time_seconds, score)`` that are now final."""
+        self.pending = np.concatenate([self.pending, np.asarray(samples, dtype=np.float32)])
+        whole = len(self.pending) // self.hop * self.hop
+        if whole:
+            frames = self.pending[:whole].reshape(-1, self.hop)
+            self.pending = self.pending[whole:]
+            diff = np.diff(frames, axis=1, prepend=frames[:, :1])
+            rms = np.sqrt(np.mean(frames * frames, axis=1) + 1e-12)
+            high_rms = np.sqrt(np.mean(diff * diff, axis=1) + 1e-12)
+            high_peak = np.max(np.abs(diff), axis=1)
+            self.log_rms.extend((20.0 * np.log10(rms + 1e-7)).tolist())
+            self.log_high.extend((20.0 * np.log10(high_rms + 1e-7)).tolist())
+            self.crest.extend((high_peak / (high_rms + 1e-7)).tolist())
+        events: list[tuple[float, float]] = []
+        total = self.offset + len(self.log_high)
+        log_high, log_rms = np.asarray(self.log_high), np.asarray(self.log_rms)
+        while self.finalized + self.radius < total:
+            local = self.finalized - self.offset
+            low, high = max(0, local - self.radius), local + self.radius + 1
+            score = (log_high[local] - float(np.mean(log_high[low:high]))) + max(self.crest[local] - 3.0, 0.0) * 1.5
+            score += max(log_rms[local] - float(np.mean(log_rms[low:high])), 0.0) * 0.35
+            self.scores.append(score)
+            self.history.append(score)
+            self.finalized += 1
+            events.extend(self._pick_peak())
+        if len(self.history) > self.history_limit:
+            del self.history[: len(self.history) - self.history_limit]
+        keep = self.radius * 2 + 2
+        if len(self.log_high) > keep * 4:
+            drop = len(self.log_high) - keep
+            del self.log_high[:drop], self.log_rms[:drop], self.crest[:drop]
+            self.offset += drop
+        if len(self.scores) > 8:
+            drop = len(self.scores) - 3
+            del self.scores[:drop]
+            self.offset_scores += drop
+        return events
+
+    def _pick_peak(self) -> list[tuple[float, float]]:
+        # The middle of the last three scores is a local maximum candidate.
+        if len(self.scores) < 3:
+            return []
+        index = self.offset_scores + len(self.scores) - 2
+        output: list[tuple[float, float]] = []
+        if self.last_event is not None and index - self.last_event[0] >= self.minimum_gap:
+            output.append((self.last_event[0] * self.hop_seconds, self.last_event[1]))  # merge window has passed
+            self.last_event = None
+        previous, current, following = self.scores[-3], self.scores[-2], self.scores[-1]
+        threshold = max(float(np.percentile(self.history, 98.8)) if len(self.history) >= 500 else 8.0, 8.0)
+        if current < threshold or current < previous or current < following:
+            return output
+        if self.last_event is not None:
+            if current > self.last_event[1]:
+                self.last_event = (index, current)
+            return output
+        self.last_event = (index, current)
+        return output
+
+    def flush(self) -> list[tuple[float, float]]:
+        if self.last_event is None:
+            return []
+        event = (self.last_event[0] * self.hop_seconds, self.last_event[1])
+        self.last_event = None
+        return [event]

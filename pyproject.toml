@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "smart-badminton"
-version = "0.1.0"
+version = "0.2.0"
 description = "Conservative multimodal rally segmentation for fixed-camera badminton videos"
 readme = "README.md"
 license = {file = "LICENSE"}
@@ -32,6 +32,7 @@ dependencies = [
 vision = ["ultralytics>=8.3", "opencv-python>=4.10,<5.1"]
 tracknet = ["torch>=2.7"]
 hybrid = ["ultralytics>=8.3", "opencv-python>=4.10,<5.1", "torch>=2.7"]
+ondevice = ["ultralytics>=8.3", "opencv-python>=4.10,<5.1", "onnx>=1.16", "onnxslim>=0.1.40", "onnxruntime>=1.20"]
 studio = ["fastapi>=0.115,<0.142", "httpx>=0.27,<1", "uvicorn>=0.30"]
 full = [
   "fastapi>=0.115,<0.142",

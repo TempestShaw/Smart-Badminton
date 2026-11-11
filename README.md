@@ -51,7 +51,8 @@ Both editions support English and Chinese, automatically select a supported brow
 | Start here | [Open the web app](https://smart-badminton-tau.vercel.app/) | Install and run local Studio |
 | Rally detection | Lightweight visual activity analysis | Calibrated multimodal pipeline |
 | Editing | Clip boundaries, split/add/delete, local timeline save | Detailed timeline, frame nudging, undo/redo, cut preview |
-| Analysis | Candidate rally segments | Hybrid shuttle tracking, player pose and evidence-based scoring |
+| Analysis | Candidate rally segments | Hybrid shuttle tracking, player tracking for singles and doubles, evidence-based scoring |
+| Live | — | Real-time rally, shot and player stats from a camera or phone |
 | Export | MP4 through browser WebAssembly | Source-quality rendering through local FFmpeg |
 | Setup | No installation | Python; additional models and calibration for vision analysis |
 
@@ -90,6 +91,25 @@ In Studio, outline the active court, generate and refine the helper regions, and
 
 [Releases](https://github.com/TempestShaw/Smart-Badminton/releases) also provide a Python wheel and a separate offline model bundle. Tagged releases can lag behind `main`.
 
+## Watch live while you play
+
+Leave a laptop (or any computer) by the court and watch on your phone:
+
+```bash
+smart-badminton live --library /path/to/matches --host 0.0.0.0
+```
+
+Open the printed address on any device on the same Wi-Fi. Pick the computer's camera, a stream or IP-camera URL, or,
+with `--https`, the phone's own camera. Tap the four singles-court corners once per camera position. The page then
+shows the rally clock, shots per rally, and for each tracked player (two per side in doubles) distance, speed,
+swings, hits and court position. Tick **Record** to keep the session for a full, editable cut in Studio afterwards.
+See [live analysis](docs/live.en.md).
+
+No computer at the court: open the web Studio on the phone and tap **Live**. Player tracking, hit sounds and rallies
+then run in the phone's browser (WebGPU, or an 8-bit model on the CPU), and nothing is uploaded. If a camera beside the
+court cannot see all four corners, calibrate from any four visible court points instead. See
+[phone only](docs/live.en.md#phone-only-no-computer).
+
 ## Use directly in your terminal
 
 A reviewed timeline is a small CSV file. Save this illustrative example as `rallies.csv` and use a recording long enough to contain these ranges:
@@ -111,6 +131,7 @@ The CLI also exposes feature extraction, rally prediction, shuttle tracking, sco
 ## Explore and contribute
 
 - [Studio guide in English](docs/studio-tutorial.en.md) and [简体中文](docs/studio-tutorial.zh-CN.md).
+- [Live analysis](docs/live.en.md) and [实时分析](docs/live.zh-CN.md).
 - [Architecture](docs/architecture.md), [local Studio API](docs/studio-api.md), and [web deployment](docs/deployment.md).
 - [Model card](models/MODEL_CARD.md), [model setup](models/README.md), and [advanced research workflows](docs/advanced-workflows.md).
 - [Synthetic example project](examples/privacy_safe_sample) with metadata and annotations, without recorded people, venue footage or audio.
