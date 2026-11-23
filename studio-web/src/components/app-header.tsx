@@ -3,7 +3,7 @@
 import { useTranslation } from "react-i18next";
 import { t, translateMessage } from "@/lib/i18n";
 
-import { Clapperboard, Globe2, Redo2, Save, Undo2 } from "lucide-react";
+import { Clapperboard, Globe2, Radio, Redo2, Save, Undo2 } from "lucide-react";
 import { useState } from "react";
 import { LanguageSwitcher } from "@/components/language-controls";
 import { ThemeToggle } from "@/components/theme-controls";
@@ -18,7 +18,7 @@ import { BackgroundJobCenter } from "@/components/background-job-center";
 import { StudioTutorial } from "@/components/studio-tutorial";
 import type { StudioController } from "@/hooks/use-studio-controller";
 
-export function AppHeader({ studio, onSwitchEngine }: { studio: StudioController; onSwitchEngine?: () => void }) {
+export function AppHeader({ studio, onSwitchEngine, onOpenLive }: { studio: StudioController; onSwitchEngine?: () => void; onOpenLive?: () => void }) {
   useTranslation();
   const [includeTrajectory, setIncludeTrajectory] = useState(false);
   const [winnerFilter, setWinnerFilter] = useState<"all" | "near" | "far">("all");
@@ -37,6 +37,7 @@ export function AppHeader({ studio, onSwitchEngine }: { studio: StudioController
       <div className="top-actions">
         <LanguageSwitcher /><ThemeToggle />
         {onSwitchEngine ? <Button size="sm" variant="ghost" onClick={onSwitchEngine}><Globe2 />{t("浏览器版")}</Button> : null}
+        {onOpenLive ? <Button size="sm" variant="ghost" onClick={onOpenLive}><Radio />{t("实时分析")}</Button> : null}
         <BackgroundJobCenter studio={studio} />
         <StudioTutorial studio={studio} />
         <Badge variant={studio.dirty ? "destructive" : "outline"}>{studio.dirty ? t("有未保存修改") : t("已保存")}</Badge>

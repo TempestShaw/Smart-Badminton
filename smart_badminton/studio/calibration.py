@@ -10,6 +10,7 @@ from pathlib import Path
 from typing import Any
 
 from ..geometry import CourtGeometry
+from ..players import MATCH_FORMATS, match_format_from_config
 from .project import video_metadata
 from .state import StudioState
 
@@ -28,6 +29,7 @@ PERSPECTIVE_AXIS_DEFINITION = {
     "maximum_points": 2,
 }
 COURT_CORNERS_DEFINITION = {
+    # These four corners alone define the court: Studio derives every other region from them on request.
     "label": "单打场地四角（近左 → 近右 → 远右 → 远左）",
     "color": "#ffb45c",
     "required": False,
@@ -148,10 +150,14 @@ def calibration_payload(state: StudioState) -> dict[str, Any]:
         "reference_frame": {"width": width, "height": height},
         "regions": regions,
         "homography": homography,
+        "match_format": match_format_from_config(data),
     }
 
 
 def save_calibration(state: StudioState, payload: dict[str, Any]) -> tuple[Path, Path | None]:
+    match_format = payload.get("match_format")
+    if match_format is not None and match_format not in MATCH_FORMATS:
+        raise ValueError("match_format must be singles or doubles")
     regions = [region for region in payload["regions"] if isinstance(region, dict)]
     by_id = {str(region.get("id")): region for region in regions}
     polygon = range(3, 65)
@@ -192,7 +198,10 @@ def save_calibration(state: StudioState, payload: dict[str, Any]) -> tuple[Path,
             "note": "Created or edited interactively in Smart Badminton Studio.",
         },
         "masks_normalized": masks,
-        "analysis": existing.get("analysis", DEFAULT_ANALYSIS_SETTINGS),
+        "analysis": {
+            **existing.get("analysis", DEFAULT_ANALYSIS_SETTINGS),
+            **({"match_format": match_format} if match_format is not None else {}),
+        },
     }
     path = state.config or default_calibration_path(state)
     path.parent.mkdir(parents=True, exist_ok=True)

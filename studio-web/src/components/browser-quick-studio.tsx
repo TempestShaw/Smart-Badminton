@@ -4,7 +4,7 @@ import { useTranslation } from "react-i18next";
 import { t, translateMessage } from "@/lib/i18n";
 
 import { useCallback, useEffect, useMemo, useRef, useState, type PointerEvent as ReactPointerEvent } from "react";
-import { Download, FileVideo2, Gauge, Globe2, Pause, Play, Plus, Save, Scissors, Square, Trash2, Upload } from "lucide-react";
+import { Download, FileVideo2, Gauge, Globe2, Pause, Play, Plus, Radio, Save, Scissors, Square, Trash2, Upload } from "lucide-react";
 
 import { LanguageSwitcher } from "@/components/language-controls";
 import { ThemeToggle } from "@/components/theme-controls";
@@ -33,7 +33,7 @@ function normalizedSegments(segments: Segment[]): Segment[] {
     .map((segment, index) => ({ ...segment, id: `Q${String(index + 1).padStart(3, "0")}` }));
 }
 
-export function BrowserQuickStudio({ onSwitchNative }: { onSwitchNative: () => void }) {
+export function BrowserQuickStudio({ onSwitchNative, onOpenLive }: { onSwitchNative: () => void; onOpenLive?: () => void }) {
   useTranslation();
   const inputRef = useRef<HTMLInputElement>(null);
   const videoRef = useRef<HTMLVideoElement>(null);
@@ -236,6 +236,7 @@ export function BrowserQuickStudio({ onSwitchNative }: { onSwitchNative: () => v
         <div className="quick-top-actions">
           <LanguageSwitcher /><ThemeToggle />
           <Badge variant="outline">{t("本地处理")}</Badge>
+          {onOpenLive ? <Button size="sm" variant="outline" onClick={onOpenLive}><Radio />{t("实时分析")}</Button> : null}
           {file ? <Button size="sm" variant="outline" onClick={() => inputRef.current?.click()}><FileVideo2 />{t("更换视频")}</Button> : null}
           <Button size="sm" disabled={!dirty || !file} onClick={save}><Save />{t("保存")}</Button>
           <Button size="sm" variant="secondary" disabled={!segments.length || task !== "idle"} onClick={() => void exportVideo()}><Download />{t("输出 MP4")}</Button>

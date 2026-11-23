@@ -1107,12 +1107,14 @@ def render_shuttle_trajectory(
         written = 0
         try:
             while frame_index <= last_frame:
+                if (frame_index - first_frame) % stride:
+                    if not capture.grab():  # skipped frames are advanced without decoding
+                        break
+                    frame_index += 1
+                    continue
                 ok, frame = capture.read()
                 if not ok:
                     break
-                if (frame_index - first_frame) % stride:
-                    frame_index += 1
-                    continue
                 annotated = cv2.resize(frame, (output_width, output_height), interpolation=cv2.INTER_AREA)
                 current_time = frame_index / source_fps
                 while (

@@ -61,6 +61,38 @@ longer matches the open video, or a job that would overlap a running render or a
 - `POST /api/score/analyze` calculates score from the saved final timeline. A later timeline or evidence update marks
   the cached score stale until the user runs it again.
 
+## Players and doubles
+
+- The court config's `analysis.match_format` is `singles` (one tracked player per side) or `doubles` (two).
+  `GET /api/calibration` reports it and `PUT /api/calibration` accepts `match_format`; any other value is a 400.
+- `POST /api/calibration/from-corners` takes `{corners, match_format}` (the four singles corners: near left, near
+  right, far right, far left) and returns every derived region without saving, for the editor to review.
+- Automatic and visual analysis write `Analysis/player-tracks.csv`. `GET /api/players` (also `players` in
+  `GET /api/project`) summarizes each tracked player: distance, top speed, swings, hits and a court heatmap.
+  Contacts in `rally-contacts.csv` carry `player_id` for the hitting player.
+
+## Live sessions
+
+One live session runs per server; Studio and `smart-badminton live` expose the same routes.
+
+- `GET /api/live` returns `idle` or the session's `state` (`starting`, `running`, `finished`, `stopped`, `error`),
+  `calibrated`, available models, the analysed frame rate and, once calibrated, `analysis`: rally state, rallies,
+  totals and per-player stats.
+- `POST /api/live/start` takes `{source, match_format, shuttle, record}`. `source` is a camera number, a stream URL,
+  an existing video file, or `browser` for frames posted by a page. A missing file, a running session, or shuttle
+  tracking without a shuttle model returns 400 before the camera opens.
+- `POST /api/live/stop` ends the session and finalizes any recording.
+- `GET /api/live/stream.mjpg` streams annotated JPEGs (`multipart/x-mixed-replace`); `GET /api/live/snapshot.jpg`
+  returns the newest raw frame for calibration.
+- `PUT /api/live/calibration` takes `{corners, match_format}` measured on the snapshot, or `{copy_from_studio: true}`,
+  and writes `Calibration/live-court-config.json`. The running session switches to it on the next frame.
+- `POST /api/live/frame` (a JPEG body, optional `X-Capture-Time`) and `POST /api/live/audio` (16 kHz mono 16-bit PCM)
+  feed a `browser` session. `POST /api/live/recording` streams a browser recording into `Live/`; the filename is
+  reduced to a safe base name and the file is remuxed so it has a duration and seek index.
+
+Phone browsers only share a camera with HTTPS pages. `--https` on `studio` or `live` serves TLS with a self-signed
+certificate (created with OpenSSL under `.smart-badminton/tls/`) whose names cover this machine's addresses.
+
 ## Score semantics
 
 Automatic score rows have an evidence source: `automatic-terminal` or `automatic-next-serve`. A next-serve inference

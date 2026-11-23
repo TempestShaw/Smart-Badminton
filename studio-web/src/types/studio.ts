@@ -226,6 +226,7 @@ export interface ProjectPayload {
     };
   };
   calibration: { ready: boolean; path: string };
+  players?: PlayersPayload;
   analytics: AnalyticsPayload;
   score: ScorePayload;
   score_labeling: ScoreLabelingPayload;
@@ -323,6 +324,7 @@ export interface CalibrationPayload {
   reference_frame: { width: number; height: number };
   regions: CalibrationRegion[];
   homography: HomographyQuality;
+  match_format?: "singles" | "doubles";
   backup?: string | null;
   automatic_analysis_configured?: boolean;
   pose_overlay_configured?: boolean;
@@ -366,4 +368,23 @@ export interface ShuttleAnnotationPayload {
   detections: ShuttleDetection[];
   annotations: ShuttleAnnotation[];
   backup?: string | null;
+}
+
+export interface PlayerSummary {
+  player_id: string;
+  side: "near" | "far";
+  detected_samples: number;
+  distance_meters: number;
+  max_speed_meters_per_second: number;
+  swings: number;
+  hits: number;
+  metric: boolean;
+  heatmap: number[][];
+}
+
+export interface PlayersPayload {
+  available: boolean;
+  match_format: "singles" | "doubles";
+  reason?: string;
+  players?: PlayerSummary[];
 }

@@ -37,6 +37,7 @@ export function useCalibrationEditor({ active, project, videoRef, notify, onDirt
   const [dirty, setDirty] = useState(false);
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
+  const [matchFormat, setMatchFormatState] = useState<"singles" | "doubles">("singles");
 
   const markDirty = useCallback((value: boolean) => {
     setDirty(value);
@@ -53,6 +54,7 @@ export function useCalibrationEditor({ active, project, videoRef, notify, onDirt
         if (!current) return;
         const normalized = clonePayload(result);
         setPayload(normalized);
+        setMatchFormatState(result.match_format ?? "singles");
         const incomplete = normalized.regions.find((region) => region.required && (region.points?.length ?? 0) < (region.minimum_points ?? 3));
         setSelectedId(incomplete?.id ?? normalized.regions[0]?.id ?? "");
         markDirty(false);
@@ -264,6 +266,31 @@ export function useCalibrationEditor({ active, project, videoRef, notify, onDirt
     return true;
   };
 
+  const setMatchFormat = (value: "singles" | "doubles") => {
+    setMatchFormatState(value);
+    markDirty(true);
+  };
+
+  /** Fill the court, both halves, the net and the airspace from the four singles corners. */
+  const deriveFromCorners = async () => {
+    const corners = payload?.regions.find((region) => region.id === "court_corners")?.points ?? [];
+    if (corners.length !== 4) {
+      notify(t("请先按顺序点出单打场地四角"), true);
+      return;
+    }
+    try {
+      const result = await apiRequest<{ regions: Record<string, Point[]> }>("/api/calibration/from-corners", {
+        method: "POST",
+        body: JSON.stringify({ corners, match_format: matchFormat }),
+      });
+      mutateRegions((regions) => regions.map((region) => result.regions[region.id] ? { ...region, points: result.regions[region.id] } : region));
+      setSelectedId("active_court_polygon");
+      notify(t("已从四角推算全部区域，检查后保存"));
+    } catch (error) {
+      notify((error as Error).message, true);
+    }
+  };
+
   const save = async () => {
     if (!payload || !project) return;
     try {
@@ -274,9 +301,11 @@ export function useCalibrationEditor({ active, project, videoRef, notify, onDirt
           project_id: project.id,
           source_time_seconds: videoRef.current?.currentTime ?? 0,
           regions: payload.regions,
+          match_format: matchFormat,
         }),
       });
       setPayload(clonePayload(result));
+      setMatchFormatState(result.match_format ?? matchFormat);
       markDirty(false);
       onSaved(result);
       notify(t("球场校准已保存"));
@@ -305,6 +334,9 @@ export function useCalibrationEditor({ active, project, videoRef, notify, onDirt
     deleteRegion,
     addRegion,
     autoGenerate,
+    deriveFromCorners,
+    matchFormat,
+    setMatchFormat,
     save,
   };
 }

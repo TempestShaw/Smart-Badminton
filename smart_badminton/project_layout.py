@@ -34,6 +34,10 @@ class AnalysisArtifacts:
         return self.root / "vision-features.csv"
 
     @property
+    def player_tracks(self) -> Path:
+        return self.root / "player-tracks.csv"
+
+    @property
     def probabilities(self) -> Path:
         return self.root / "rally-probabilities.csv"
 

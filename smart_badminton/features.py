@@ -3,7 +3,6 @@ from __future__ import annotations
 import bisect
 import csv
 import math
-import sys
 from collections import Counter
 from collections.abc import Callable
 from pathlib import Path
@@ -13,6 +12,18 @@ import numpy as np
 
 from .geometry import CourtGeometry
 from .io import write_rows
+from .players import (
+    CourtFrame,
+    PlayerObservation,
+    PlayerTracker,
+    PoseEstimator,
+    match_format_from_config,
+    observation_row,
+    players_per_side,
+    refine_identities,
+    side_features,
+    write_player_tracks,
+)
 
 FEATURE_FIELDS = [
     "time_seconds",
@@ -203,145 +214,71 @@ class ShuttleDetectionIndex:
         return empty, (selected["x"], selected["y"])
 
 
-class PoseSignals:
-    def __init__(self, model_path: Path | None, packages: Path | None, confidence: float):
-        self.model = None
-        self.device: int | str = "cpu"
-        self.confidence = confidence
-        self.previous_wrist: dict[tuple[str, int], tuple[float, float]] = {}
-        self.previous_ankle_span: dict[str, float] = {}
-        self.previous_foot: dict[str, tuple[float, float]] = {}
-        if model_path is None:
-            return
-        import torch
+class MotionSignals:
+    """Frame-difference and optical-flow energy per court region, computed on a 320 px grey frame."""
 
-        if packages is not None:
-            sys.path.append(str(packages))
-        from ultralytics import YOLO
-
-        self.device = 0 if torch.cuda.is_available() else "cpu"
-        self.model = YOLO(str(model_path))
-
-    def sample(self, frame: np.ndarray, geometry: CourtGeometry, delta_seconds: float) -> dict[str, float]:
-        output = {
-            "near_person_visible": 0.0,
-            "far_person_visible": 0.0,
-            "near_swing_score": 0.0,
-            "far_swing_score": 0.0,
-            "near_lunge_score": 0.0,
-            "far_lunge_score": 0.0,
-            "near_foot_x_normalized": 0.0,
-            "near_foot_y_normalized": 0.0,
-            "far_foot_x_normalized": 0.0,
-            "far_foot_y_normalized": 0.0,
-            "near_foot_speed_normalized": 0.0,
-            "far_foot_speed_normalized": 0.0,
-            "near_stance_width_normalized": 0.0,
-            "far_stance_width_normalized": 0.0,
-            "near_active_wrist_x_normalized": 0.0,
-            "near_active_wrist_y_normalized": 0.0,
-            "far_active_wrist_x_normalized": 0.0,
-            "far_active_wrist_y_normalized": 0.0,
-            "near_active_wrist_speed_normalized": 0.0,
-            "far_active_wrist_speed_normalized": 0.0,
-            "near_active_wrist_visible": 0.0,
-            "far_active_wrist_visible": 0.0,
+    def __init__(self, geometry: CourtGeometry, width: int, height: int, motion_threshold: float):
+        self.analysis_width = 320
+        self.analysis_height = max(1, round(height * self.analysis_width / width))
+        self.motion_threshold = motion_threshold
+        self.masks = {
+            name: geometry.polygon_mask(name, self.analysis_width, self.analysis_height)
+            for name in ("court_ground_polygon", "near_player_zone", "far_player_zone")
         }
-        if self.model is None:
-            return output
-        height, width = frame.shape[:2]
-        diagonal = math.hypot(width, height)
-        selected: dict[str, tuple[float, np.ndarray, np.ndarray | None]] = {}
-        inputs = []
-        offsets = []
-        for side in ("near", "far"):
-            x1, y1, x2, y2 = geometry.player_inference_bounds(side, width, height)
-            inputs.append(frame[y1:y2, x1:x2])
-            offsets.append((x1, y1))
-        results = self.model.predict(inputs, imgsz=640, conf=self.confidence, device=self.device, verbose=False)
+        self.previous_gray: np.ndarray | None = None
 
-        for side, result, (offset_x, offset_y) in zip(("near", "far"), results, offsets):
-            if result.boxes is None or result.keypoints is None or result.keypoints.xy is None:
-                continue
-            boxes = result.boxes.xyxy.detach().cpu().numpy()
-            box_confidence = result.boxes.conf.detach().cpu().numpy()
-            keypoints = result.keypoints.xy.detach().cpu().numpy()
-            keypoint_conf = result.keypoints.conf.detach().cpu().numpy() if result.keypoints.conf is not None else None
-            for index, (local_box, local_points) in enumerate(zip(boxes, keypoints)):
-                box = local_box + np.asarray([offset_x, offset_y, offset_x, offset_y])
-                points = local_points + np.asarray([offset_x, offset_y])
-                confidences = keypoint_conf[index] if keypoint_conf is not None else None
-                ankles = [
-                    points[keypoint_index]
-                    for keypoint_index in (15, 16)
-                    if confidences is None or confidences[keypoint_index] >= 0.2
-                ]
-                foot = np.mean(ankles, axis=0) if ankles else np.asarray([(box[0] + box[2]) / 2.0, box[3]])
-                nx, ny = float(foot[0] / width), float(foot[1] / height)
-                if not geometry.contains_active_court(nx, ny, margin=0.015):
-                    continue
-                if not geometry.contains_normalized(f"{side}_player_zone", nx, ny):
-                    continue
-                area = float(max(0.0, box[2] - box[0]) * max(0.0, box[3] - box[1]))
-                score = area * float(box_confidence[index])
-                if side not in selected or score > selected[side][0]:
-                    selected[side] = (score, points, confidences)
+    def sample(self, frame: np.ndarray) -> dict[str, float]:
+        resized = cv2.resize(frame, (self.analysis_width, self.analysis_height), interpolation=cv2.INTER_AREA)
+        gray = cv2.GaussianBlur(cv2.cvtColor(resized, cv2.COLOR_BGR2GRAY), (5, 5), 0)
+        if self.previous_gray is None:
+            difference = np.zeros_like(gray)
+            flow_magnitude = np.zeros_like(gray, dtype=np.float32)
+        else:
+            difference = cv2.absdiff(gray, self.previous_gray)
+            flow = cv2.calcOpticalFlowFarneback(self.previous_gray, gray, None, 0.5, 2, 13, 2, 5, 1.1, 0)
+            flow_magnitude = cv2.magnitude(flow[..., 0], flow[..., 1])
+        self.previous_gray = gray
+        masks, threshold = self.masks, self.motion_threshold
+        return {
+            "court_motion_mean": _mask_mean(difference, masks["court_ground_polygon"]),
+            "court_motion_fraction": _mask_fraction(difference, masks["court_ground_polygon"], threshold),
+            "near_motion_mean": _mask_mean(difference, masks["near_player_zone"]),
+            "near_motion_fraction": _mask_fraction(difference, masks["near_player_zone"], threshold),
+            "far_motion_mean": _mask_mean(difference, masks["far_player_zone"]),
+            "far_motion_fraction": _mask_fraction(difference, masks["far_player_zone"], threshold),
+            "near_flow_mean": _mask_mean(flow_magnitude, masks["near_player_zone"]),
+            "far_flow_mean": _mask_mean(flow_magnitude, masks["far_player_zone"]),
+        }
 
-        for side, (_area, points, confidences) in selected.items():
-            output[f"{side}_person_visible"] = 1.0
-            wrist_speeds = []
-            wrist_observations = []
-            for keypoint_index in (9, 10):
-                if confidences is None or confidences[keypoint_index] >= 0.2:
-                    wrist = points[keypoint_index]
-                    key = (side, keypoint_index)
-                    previous = self.previous_wrist.get(key)
-                    speed = 0.0
-                    if previous is not None and delta_seconds > 0:
-                        speed = (
-                            math.hypot(float(wrist[0]) - previous[0], float(wrist[1]) - previous[1])
-                            / diagonal
-                            / delta_seconds
-                        )
-                        wrist_speeds.append(speed)
-                    wrist_observations.append((speed, float(wrist[0] / width), float(wrist[1] / height)))
-                    self.previous_wrist[key] = (float(wrist[0]), float(wrist[1]))
-            if wrist_speeds:
-                speed = max(wrist_speeds)
-                output[f"{side}_swing_score"] = float(np.clip(speed / 1.2, 0.0, 1.0))
-            if wrist_observations:
-                active_wrist = max(wrist_observations, key=lambda observation: observation[0])
-                output[f"{side}_active_wrist_speed_normalized"] = float(np.clip(active_wrist[0], 0.0, 3.0))
-                output[f"{side}_active_wrist_x_normalized"] = active_wrist[1]
-                output[f"{side}_active_wrist_y_normalized"] = active_wrist[2]
-                output[f"{side}_active_wrist_visible"] = 1.0
 
-            ankles = []
-            for keypoint_index in (15, 16):
-                if confidences is None or confidences[keypoint_index] >= 0.2:
-                    ankles.append(points[keypoint_index])
-            if len(ankles) == 2:
-                span = abs(float(ankles[0][0] - ankles[1][0])) / width
-                foot = np.mean(ankles, axis=0)
-                foot_normalized = (float(foot[0] / width), float(foot[1] / height))
-                previous_foot = self.previous_foot.get(side)
-                foot_speed = 0.0
-                if previous_foot is not None and delta_seconds > 0:
-                    foot_speed = math.hypot(
-                        foot_normalized[0] - previous_foot[0],
-                        foot_normalized[1] - previous_foot[1],
-                    ) / delta_seconds
-                output[f"{side}_foot_x_normalized"] = foot_normalized[0]
-                output[f"{side}_foot_y_normalized"] = foot_normalized[1]
-                output[f"{side}_foot_speed_normalized"] = float(np.clip(foot_speed, 0.0, 3.0))
-                output[f"{side}_stance_width_normalized"] = span
-                previous_span = self.previous_ankle_span.get(side, span)
-                output[f"{side}_lunge_score"] = float(
-                    np.clip((span + max(0.0, span - previous_span) * 2.0) / 0.18, 0.0, 1.0)
-                )
-                self.previous_ankle_span[side] = span
-                self.previous_foot[side] = foot_normalized
-        return output
+class PoseSignals:
+    """Pose features from tracked players: every speed is measured on one identity, never across two people."""
+
+    def __init__(
+        self,
+        model_path: Path | None,
+        packages: Path | None,
+        confidence: float,
+        geometry: CourtGeometry,
+        width: int,
+        height: int,
+        match_format: str = "singles",
+        image_size: int = 640,
+    ):
+        self.doubles = match_format == "doubles"
+        self.court = CourtFrame(geometry, width, height)
+        self.tracker = PlayerTracker(self.court, players_per_side(match_format))
+        self.estimator = (
+            PoseEstimator(model_path, geometry, packages, confidence, image_size) if model_path is not None else None
+        )
+
+    def sample(
+        self, frame: np.ndarray, time_seconds: float, shuttle: tuple[float, float] | None = None
+    ) -> tuple[dict[str, float], list[PlayerObservation]]:
+        if self.estimator is None:
+            return side_features([]), []
+        observations = self.tracker.update(self.estimator.detect(frame, self.court, self.doubles), time_seconds)
+        return side_features(observations, shuttle), observations
 
 
 def extract_features(
@@ -356,6 +293,8 @@ def extract_features(
     start_seconds: float = 0.0,
     end_seconds: float | None = None,
     progress_callback: Callable[[float], None] | None = None,
+    player_tracks_output: Path | None = None,
+    match_format: str | None = None,
 ) -> None:
     geometry = CourtGeometry.from_json(config)
     config_data = __import__("json").loads(config.read_text(encoding="utf-8"))
@@ -378,74 +317,64 @@ def extract_features(
     end_frame = min(frame_count, round(end_seconds * source_fps))
     capture.set(cv2.CAP_PROP_POS_FRAMES, start_frame)
 
-    analysis_width = 320
-    analysis_height = max(1, round(height * analysis_width / width))
-    masks = {
-        name: geometry.polygon_mask(name, analysis_width, analysis_height)
-        for name in ("court_ground_polygon", "near_player_zone", "far_player_zone")
-    }
+    match_format = match_format or match_format_from_config(config_data)
+    motion = MotionSignals(geometry, width, height, motion_threshold)
     audio = AudioEventIndex(audio_events)
     shuttle = ShuttleDetectionIndex(shuttle_detections, geometry, width, height)
-    pose = PoseSignals(pose_model, packages, float(analysis.get("pose_confidence", 0.2)))
+    pose = PoseSignals(
+        pose_model,
+        packages,
+        float(analysis.get("pose_confidence", 0.2)),
+        geometry,
+        width,
+        height,
+        match_format,
+        int(analysis.get("pose_image_size", 640)),
+    )
 
-    previous_gray: np.ndarray | None = None
     previous_shuttle: tuple[float, float] | None = None
     previous_shuttle_time: float | None = None
     rows = []
+    tracked: list[tuple[int, PlayerObservation]] = []
     frame_index = start_frame
-    last_sample_time = start_seconds
 
     while frame_index < end_frame:
+        if (frame_index - start_frame) % stride:
+            # grab() advances without decoding to BGR, which roughly halves decode time at 10 fps sampling.
+            if not capture.grab():
+                break
+            frame_index += 1
+            continue
         ok, frame = capture.read()
         if not ok:
             break
-        if (frame_index - start_frame) % stride:
-            frame_index += 1
-            continue
         time_seconds = frame_index / source_fps
-        resized = cv2.resize(frame, (analysis_width, analysis_height), interpolation=cv2.INTER_AREA)
-        gray = cv2.cvtColor(resized, cv2.COLOR_BGR2GRAY)
-        gray = cv2.GaussianBlur(gray, (5, 5), 0)
-        if previous_gray is None:
-            difference = np.zeros_like(gray)
-            flow_magnitude = np.zeros_like(gray, dtype=np.float32)
-        else:
-            difference = cv2.absdiff(gray, previous_gray)
-            flow = cv2.calcOpticalFlowFarneback(previous_gray, gray, None, 0.5, 2, 13, 2, 5, 1.1, 0)
-            flow_magnitude = cv2.magnitude(flow[..., 0], flow[..., 1])
-        previous_gray = gray
-
-        row: dict[str, float | int] = {
-            "time_seconds": time_seconds,
-            "frame_index": frame_index,
-            "court_motion_mean": _mask_mean(difference, masks["court_ground_polygon"]),
-            "court_motion_fraction": _mask_fraction(difference, masks["court_ground_polygon"], motion_threshold),
-            "near_motion_mean": _mask_mean(difference, masks["near_player_zone"]),
-            "near_motion_fraction": _mask_fraction(difference, masks["near_player_zone"], motion_threshold),
-            "far_motion_mean": _mask_mean(difference, masks["far_player_zone"]),
-            "far_motion_fraction": _mask_fraction(difference, masks["far_player_zone"], motion_threshold),
-            "near_flow_mean": _mask_mean(flow_magnitude, masks["near_player_zone"]),
-            "far_flow_mean": _mask_mean(flow_magnitude, masks["far_player_zone"]),
-        }
-        delta = max(time_seconds - last_sample_time, 1.0 / sample_fps)
-        row.update(pose.sample(frame, geometry, delta))
-        audio_score, since_audio = audio.sample(time_seconds, audio_window)
-        row["audio_hit_score"] = audio_score
-        row["seconds_since_audio_hit"] = since_audio
+        row: dict[str, float | int] = {"time_seconds": time_seconds, "frame_index": frame_index, **motion.sample(frame)}
         shuttle_values, selected = shuttle.sample(
             time_seconds,
             0.55 / sample_fps,
             previous_shuttle,
             previous_shuttle_time,
         )
+        visible_shuttle = selected if shuttle_values["shuttle_visible"] else None
+        pose_values, observations = pose.sample(frame, time_seconds, visible_shuttle)
+        row.update(pose_values)
+        audio_score, since_audio = audio.sample(time_seconds, audio_window)
+        row["audio_hit_score"] = audio_score
+        row["seconds_since_audio_hit"] = since_audio
         row.update(shuttle_values)
         if shuttle_values["shuttle_visible"]:
             previous_shuttle = selected
             previous_shuttle_time = time_seconds
         rows.append(row)
+        if player_tracks_output is not None:
+            for observation in observations:
+                observation.keypoints = observation.confidences = None  # keep an hour of doubles small in memory
+                if not pose.doubles:
+                    observation.appearance = None
+                tracked.append((frame_index, observation))
         if progress_callback is not None and len(rows) % 50 == 0:
             progress_callback((frame_index - start_frame) / max(1, end_frame - start_frame))
-        last_sample_time = time_seconds
         frame_index += 1
 
     capture.release()
@@ -460,6 +389,13 @@ def extract_features(
             }
         )
     write_rows(output_csv, FEATURE_FIELDS, formatted)
+    if player_tracks_output is not None:
+        frames = {id(observation): index for index, observation in tracked}
+        refined = refine_identities([observation for _index, observation in tracked], players_per_side(match_format))
+        write_player_tracks(
+            player_tracks_output,
+            [observation_row(observation, frames[id(observation)], width, height) for observation in refined],
+        )
     print(
         f"features={len(rows)} source_fps={source_fps:.5f} sample_fps={source_fps / stride:.5f} "
         f"range={start_seconds:.3f}-{end_seconds:.3f} output={output_csv}"

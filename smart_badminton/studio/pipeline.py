@@ -5,6 +5,7 @@ from __future__ import annotations
 import csv
 import json
 import shutil
+from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
@@ -36,6 +37,34 @@ def has_pose_association(features: Path) -> bool:
         return False
     with features.open(encoding="utf-8-sig") as handle:
         return POSE_ASSOCIATION_FIELDS.issubset(next(csv.reader(handle), []))
+
+
+def needs_player_features(state: StudioState, video: Path) -> bool:
+    """Vision features are (re)extracted when pose columns or the tracked-player file are missing or outdated."""
+    artifacts = state.layout(video).analysis
+    if not has_pose_association(artifacts.vision_features):
+        return True
+    if not state.pose_model:
+        return False
+    tracks = artifacts.player_tracks
+    return not tracks.exists() or bool(state.config and state.config.stat().st_mtime > tracks.stat().st_mtime)
+
+
+def extract_vision_features(
+    state: StudioState, video: Path, progress: Callable[[float], None] | None = None
+) -> None:
+    artifacts = state.layout(video).analysis
+    extract_features(
+        video,
+        state.config,
+        artifacts.vision_features,
+        artifacts.audio_events,
+        artifacts.shuttle_track if artifacts.shuttle_track.exists() else None,
+        state.pose_model,
+        state.packages,
+        progress_callback=progress,
+        player_tracks_output=artifacts.player_tracks if state.pose_model else None,
+    )
 
 
 def preserve_state_features(state_features: Path, vision_features: Path) -> None:
@@ -89,18 +118,10 @@ def analyze_video(state: StudioState, video: Path, index: int, total: int) -> di
         if not artifacts.shuttle_track.exists():
             run_shuttle_trajectory(state, video, features_for_trajectory(artifacts.root))
     stage("features", "正在理解球场、球员动作与运动轨迹", 0.30)
-    if not has_pose_association(artifacts.vision_features):
-        extract_features(
+    if needs_player_features(state, video):
+        extract_vision_features(
+            state,
             video,
-            state.config,
-            artifacts.vision_features,
-            artifacts.audio_events,
-            artifacts.shuttle_track if artifacts.shuttle_track.exists() else None,
-            state.pose_model,
-            state.packages,
-            None,
-            0.0,
-            None,
             lambda progress: stage(
                 "features", "正在理解球场、球员动作与运动轨迹", 0.30 + max(0.0, min(1.0, progress)) * 0.52
             ),

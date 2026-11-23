@@ -44,7 +44,11 @@ Complete these five required regions:
 
 Start with the active court, choose **Generate helper regions from the active court**, then refine the result. Use background exclusions and static false-positive regions for adjacent courts, reflections or fixed white objects.
 
-The four orange court corners and the cyan perspective axis provide optional information. One camera cannot reliably recover the shuttle's 3D height, so Studio does not present a 2D projection as an accurate landing location.
+**Faster:** select the orange **singles court corners** region and click the four points where the singles sidelines meet the baselines (near left, near right, far right, far left). Then click **Derive all regions from the corners**. Studio places the active court, both foot regions, the net and the airspace from the court's real dimensions; check them and save. The corners also give court positions in metres, which player distance and speed need.
+
+Set **Match type** to **Doubles** for doubles. Studio then follows two players on each side, gives each a stable ID, and makes the active court the doubles court.
+
+The cyan perspective axis is optional. One camera cannot reliably recover the shuttle's 3D height, so Studio does not present a 2D projection as an accurate landing location.
 
 ### Rerun analysis after calibration
 

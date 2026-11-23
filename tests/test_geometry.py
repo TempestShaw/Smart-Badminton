@@ -87,3 +87,36 @@ def test_homography_reports_click_sensitivity_instead_of_zero_reprojection_error
     assert quality["available"] is True
     assert 0 < quality["median_uncertainty_meters"] < quality["p95_uncertainty_meters"]
     assert 0 <= quality["confidence"] <= 1
+
+
+def test_corners_from_landmarks_recovers_corners_that_are_out_of_frame() -> None:
+    import cv2
+    import numpy as np
+
+    from smart_badminton.geometry import COURT_LANDMARKS_METERS, SINGLES_CORNERS_METERS, corners_from_landmarks
+
+    # A low camera beside the net: the near corners fall below and left of the frame.
+    true_corners = np.float32([[-0.35, 1.6], [0.55, 1.25], [0.9, 0.42], [0.62, 0.38]])
+    homography = cv2.getPerspectiveTransform(SINGLES_CORNERS_METERS, true_corners * np.float32([1280, 720]))
+
+    def seen(name: str) -> tuple[tuple[float, float], tuple[float, float]]:
+        x, y = cv2.perspectiveTransform(np.float32([[COURT_LANDMARKS_METERS[name]]]), homography)[0][0]
+        return COURT_LANDMARKS_METERS[name], (x / 1280, y / 720)
+
+    names = ["left-post", "right-post", "far-left-service", "far-right-service", "far-right-corner", "far-centre-baseline"]
+    corners = corners_from_landmarks([seen(name) for name in names], 1280, 720)
+
+    assert np.allclose(corners, true_corners, atol=1e-3)
+    assert corners[0][0] < 0 and corners[0][1] > 1  # virtual corner outside the frame
+
+
+def test_corners_from_landmarks_rejects_points_on_one_line() -> None:
+    import pytest
+
+    from smart_badminton.geometry import corners_from_landmarks
+
+    on_baseline = [((0.46, 0.0), (0.1, 0.9)), ((3.05, 0.0), (0.5, 0.9)), ((5.64, 0.0), (0.9, 0.9)), ((1.0, 0.0), (0.2, 0.9))]
+    with pytest.raises(ValueError, match="one line"):
+        corners_from_landmarks(on_baseline, 1280, 720)
+    with pytest.raises(ValueError, match="at least four"):
+        corners_from_landmarks(on_baseline[:3], 1280, 720)

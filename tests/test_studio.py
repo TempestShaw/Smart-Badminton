@@ -582,6 +582,52 @@ def test_studio_api_creates_and_backs_up_interactive_calibration(tmp_path: Path,
     assert state.config.with_suffix(".json.bak").exists()
 
 
+def test_studio_derives_a_doubles_calibration_from_four_corners_and_reports_players(tmp_path: Path, patch_studio) -> None:
+    video = tmp_path / "source.mp4"
+    video.write_bytes(b"placeholder")
+    timeline = tmp_path / "rallies.csv"
+    timeline.write_text("rally,start_seconds,end_seconds\n1,1,2\n", encoding="utf-8")
+    metadata = {"name": video.name, "duration": 10.0, "fps": 30.0, "frame_count": 300, "width": 1280, "height": 720}
+    patch_studio("video_metadata", lambda _path: metadata)
+    state = StudioState(video=video, rallies=timeline, output=tmp_path / "edited.mp4")
+    client = client_for(state)
+    corners = [[0.25, 0.95], [0.75, 0.95], [0.64, 0.45], [0.36, 0.45]]
+
+    assert client.post("/api/calibration/from-corners", json={"corners": corners[:3]}).status_code == 400
+    derived = client.post("/api/calibration/from-corners", json={"corners": corners, "match_format": "doubles"}).json()["regions"]
+    calibration = client.get("/api/calibration").json()
+    for region in calibration["regions"]:
+        region["points"] = derived.get(region["id"], region["points"])
+    invalid = client.put(
+        "/api/calibration",
+        json={"project_id": "source.mp4", "regions": calibration["regions"], "match_format": "mixed"},
+    )
+    assert invalid.status_code == 400
+    saved = client.put(
+        "/api/calibration",
+        json={"project_id": "source.mp4", "regions": calibration["regions"], "match_format": "doubles"},
+    ).json()
+    assert saved["ready"] is True and saved["match_format"] == "doubles"
+
+    assert client.get("/api/players").json() == {
+        "available": False,
+        "match_format": "doubles",
+        "reason": "Run automatic analysis with the pose model to track players.",
+    }
+    tracks = state.layout().analysis.player_tracks
+    tracks.parent.mkdir(parents=True, exist_ok=True)
+    tracks.write_text(
+        "time_seconds,player_id,side,status,court_x_meters,court_y_meters,speed_meters_per_second,swing_score\n"
+        "0.0,near-1,near,detected,1.0,3.0,1.0,0.1\n0.1,near-1,near,detected,1.2,3.0,2.0,0.9\n"
+        "0.0,near-2,near,detected,4.0,4.0,0.5,0.1\n",
+        encoding="utf-8",
+    )
+    players = client.get("/api/players").json()
+    assert [player["player_id"] for player in players["players"]] == ["near-1", "near-2"]
+    assert players["players"][0]["swings"] == 1 and players["players"][0]["hits"] == 0
+    assert client.get("/api/project").json()["players"]["available"] is True
+
+
 def test_studio_api_saves_user_shuttle_annotations(tmp_path: Path, patch_studio) -> None:
     video = tmp_path / "source.mp4"
     video.write_bytes(b"placeholder")
@@ -1024,7 +1070,7 @@ def test_studio_analysis_pipeline_publishes_editable_timeline(tmp_path: Path, pa
     def fake_audio(_video, output, **_kwargs):
         output.write_text("time_seconds,score\n", encoding="utf-8")
 
-    def fake_features(_video, _config, output, *_args):
+    def fake_features(_video, _config, output, *_args, **_kwargs):
         output.write_text("time_seconds\n0\n", encoding="utf-8")
 
     def fake_predict(_features, _model, output):
