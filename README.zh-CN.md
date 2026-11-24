@@ -11,7 +11,7 @@
 </p>
 
 <p align="center">
-  <a href="https://smart-badminton-tau.vercel.app/">网页版</a> ·
+  <a href="https://smartbadminton.vercel.app/">网页版</a> ·
   <a href="#从一场比赛开始">快速开始</a> ·
   <a href="docs/studio-tutorial.zh-CN.md">使用指南</a> ·
   <a href="https://github.com/TempestShaw/Smart-Badminton/releases">版本下载</a>
@@ -27,7 +27,7 @@ Smart Badminton 把固定机位拍摄的羽毛球录像整理成回合精彩片�
 
 ## 从一场比赛开始
 
-[打开网页版](https://smart-badminton-tau.vercel.app/)，选择**浏览器版**：
+[打开网页版](https://smartbadminton.vercel.app/)，选择**浏览器版**：
 
 1. 选择设备上的比赛视频。
 2. 运行**快速分析**，寻找候选回合。
@@ -48,7 +48,7 @@ Smart Badminton 把固定机位拍摄的羽毛球录像整理成回合精彩片�
 
 | | 浏览器快速版 | 原生精准版 |
 | --- | --- | --- |
-| 开始使用 | [打开网页版](https://smart-badminton-tau.vercel.app/) | 安装并运行本地 Studio |
+| 开始使用 | [打开网页版](https://smartbadminton.vercel.app/) | 安装并运行本地 Studio |
 | 回合识别 | 轻量画面活动分析 | 经过球场校准的多模态分析 |
 | 剪辑 | 边界调整、分割／新增／删除、本机时间轴保存 | 详细时间轴、逐帧微调、撤销／重做、成片预览 |
 | 分析 | 候选回合片段 | Hybrid 羽球追踪、单打和双打球员跟踪、基于证据的比分计算 |

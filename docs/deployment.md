@@ -1,6 +1,6 @@
 # Online deployment
 
-Production: <https://smart-badminton-tau.vercel.app>
+Production: <https://smartbadminton.vercel.app>
 
 ## Production architecture
 
@@ -26,7 +26,7 @@ The source video is not uploaded. Hosting serves HTML, JavaScript and the pinned
 
 ## Deployment
 
-Configure the Vercel project root as `studio-web`, then deploy the static export. `studio-web/vercel.json` applies immutable caching to FFmpeg assets. No environment variables, storage account or database are required.
+The Vercel project uses `studio-web` as its root and is connected to this repository: every push to `main` deploys to production. The build downloads the on-device models from the latest GitHub Release, so redeploy production after publishing a release. `studio-web/vercel.json` applies immutable caching to FFmpeg assets. No environment variables, storage account or database are required.
 
 ## Boundaries
 
