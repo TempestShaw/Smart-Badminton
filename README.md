@@ -11,7 +11,7 @@
 </p>
 
 <p align="center">
-  <a href="https://smart-badminton-tau.vercel.app/">Web App</a> ·
+  <a href="https://smartbadminton.vercel.app/">Web App</a> ·
   <a href="#start-with-a-match">Quick Start</a> ·
   <a href="docs/studio-tutorial.en.md">Studio Guide</a> ·
   <a href="https://github.com/TempestShaw/Smart-Badminton/releases">Releases</a>
@@ -27,7 +27,7 @@ Smart Badminton turns fixed-camera badminton recordings into rally highlights. F
 
 ## Start with a match
 
-[Open the web app](https://smart-badminton-tau.vercel.app/) and choose **Browser Quick**:
+[Open the web app](https://smartbadminton.vercel.app/) and choose **Browser Quick**:
 
 1. Choose a match video from your device.
 2. Run **Quick analysis** to find candidate rallies.
@@ -48,7 +48,7 @@ Both editions support English and Chinese, automatically select a supported brow
 
 | | Browser Quick | Native Pro |
 | --- | --- | --- |
-| Start here | [Open the web app](https://smart-badminton-tau.vercel.app/) | Install and run local Studio |
+| Start here | [Open the web app](https://smartbadminton.vercel.app/) | Install and run local Studio |
 | Rally detection | Lightweight visual activity analysis | Calibrated multimodal pipeline |
 | Editing | Clip boundaries, split/add/delete, local timeline save | Detailed timeline, frame nudging, undo/redo, cut preview |
 | Analysis | Candidate rally segments | Hybrid shuttle tracking, player tracking for singles and doubles, evidence-based scoring |
